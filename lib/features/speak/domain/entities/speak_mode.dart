@@ -1,0 +1,1 @@
+enum SpeakMode { precise, live }
