@@ -408,6 +408,18 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
             playbackId: state.playbackId + 1,
           ),
         );
+      case Success(:final value)
+          when value.mode == SuggestionMode.single && !value.isEmpty:
+        final shown = _withHeard(value, transcription);
+        _candidatesShownAt = _now();
+        emit(
+          state.copyWith(
+            phase: UtterancePhase.suggesting,
+            transcription: transcription,
+            suggestions: shown,
+            selected: () => shown.candidates.first,
+          ),
+        );
       case Success(:final value) when !value.isEmpty:
         _candidatesShownAt = _now();
         emit(
@@ -505,6 +517,44 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
     }
     ++_generation;
     _speak(candidate.text, emit);
+  }
+
+  /// The single suggestion is rebuilt from the patient's history and may
+  /// have nothing to do with what was said; the heard sentence is offered
+  /// beside it so the patient can still say something new.
+  static Suggestions _withHeard(
+    Suggestions suggestions,
+    Transcription transcription,
+  ) {
+    final heard = transcription.finalTranscript.trim();
+    String bare(String text) => text.replaceAll(RegExp(r'[\s.,!?]'), '');
+    if (transcription.isLowConfidence ||
+        heard.isEmpty ||
+        bare(heard) == bare(suggestions.candidates.first.text)) {
+      return suggestions;
+    }
+    return Suggestions(
+      traceId: suggestions.traceId,
+      mode: suggestions.mode,
+      candidates: [
+        suggestions.candidates.first,
+        Candidate(
+          rank: 2,
+          text: heard,
+          score: transcription.asrConfidence,
+          reasonDisplay: '들린 그대로',
+          source: CandidateSource.asrVerbatim,
+        ),
+      ],
+      verbatim: suggestions.verbatim,
+      proactiveSuggestion: suggestions.proactiveSuggestion,
+      retryMessage: suggestions.retryMessage,
+      branch: suggestions.branch,
+      asrConfidence: suggestions.asrConfidence,
+      coldStart: suggestions.coldStart,
+      generatedAt: suggestions.generatedAt,
+      generationLatencyMs: suggestions.generationLatencyMs,
+    );
   }
 
   /// Hands the sentence to the shared playback screen and ends the flow.

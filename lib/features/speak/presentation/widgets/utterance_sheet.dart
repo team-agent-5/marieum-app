@@ -146,7 +146,9 @@ class _SingleCandidate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final candidate = state.suggestions!.candidates.single;
+    final candidates = state.suggestions!.candidates;
+    final candidate = candidates.first;
+    final heard = candidates.length > 1 ? candidates[1] : null;
     final reason = reasonText(candidate);
     void speak() =>
         context.read<UtteranceBloc>().add(UtteranceCandidateTapped(candidate));
@@ -243,6 +245,15 @@ class _SingleCandidate extends StatelessWidget {
             ),
           ),
         ),
+        if (heard != null) ...[
+          const SizedBox(height: 12),
+          _HeardOption(
+            candidate: heard,
+            onPressed: () => context.read<UtteranceBloc>().add(
+              UtteranceCandidateTapped(heard),
+            ),
+          ),
+        ],
         const SizedBox(height: 10),
         _SecondaryButton(
           key: const ValueKey('utterance_retry'),
@@ -254,6 +265,73 @@ class _SingleCandidate extends StatelessWidget {
       ],
     );
   }
+}
+
+/// The sentence as heard, offered when the suggestion differs from it.
+class _HeardOption extends StatelessWidget {
+  const _HeardOption({required this.candidate, required this.onPressed});
+  final Candidate candidate;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: '들린 말 ${candidate.text}, 이 말로 말하기',
+    excludeSemantics: true,
+    child: Material(
+      color: AppTokens.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: AppTokens.line, width: 1.5),
+      ),
+      child: InkWell(
+        key: const ValueKey('utterance_heard'),
+        borderRadius: BorderRadius.circular(16),
+        onTap: onPressed,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '들린 말',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppTokens.ink2,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    KeyText(
+                      candidate.text,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        height: 1.3,
+                        fontWeight: FontWeight.w800,
+                        color: AppTokens.ink,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Text(
+                '이 말로 말하기',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: AppTokens.primaryStrong,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _CandidateTile extends StatelessWidget {
