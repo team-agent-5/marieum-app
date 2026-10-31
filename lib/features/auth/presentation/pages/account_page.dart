@@ -25,24 +25,13 @@ class AccountPage extends StatelessWidget {
                   AuthAuthenticated(:final profile) => profile.nickname,
                   _ => '',
                 },
-                builder: (context, nickname) => _InfoRow(
-                  label: '닉네임',
-                  value: nickname,
-                  action: const TextButton(
-                    onPressed: null,
-                    child: Text('준비 중'),
-                  ),
-                ),
+                builder: (context, nickname) =>
+                    _InfoRow(label: '닉네임', value: nickname),
               ),
               _InfoRow(
                 label: '아이디',
                 value: userId.isEmpty ? '—' : userId,
                 action: const Text('변경 불가', style: AppTokens.copy),
-              ),
-              const _InfoRow(
-                label: '비밀번호',
-                value: '••••••••',
-                action: TextButton(onPressed: null, child: Text('준비 중')),
               ),
             ],
           ),
@@ -73,11 +62,11 @@ class _InfoRow extends StatelessWidget {
   const _InfoRow({
     required this.label,
     required this.value,
-    required this.action,
+    this.action,
   });
   final String label;
   final String value;
-  final Widget action;
+  final Widget? action;
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.fromLTRB(14, 6, 10, 6),
@@ -91,7 +80,7 @@ class _InfoRow extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 6),
-        action,
+        ?action,
       ],
     ),
   );
