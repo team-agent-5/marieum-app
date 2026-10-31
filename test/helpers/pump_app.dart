@@ -14,6 +14,7 @@ import 'package:marieum_app/features/quick_phrase/domain/entities/quick_phrase.d
 import 'package:marieum_app/features/quick_phrase/presentation/bloc/quick_phrase_bloc.dart';
 import 'package:marieum_app/features/speak/domain/entities/playback_request.dart';
 import 'package:marieum_app/features/speak/domain/entities/speak_mode.dart';
+import 'package:marieum_app/features/speak/presentation/bloc/utterance_bloc.dart';
 import 'package:marieum_app/features/speak/presentation/cubit/playback_cubit.dart';
 import 'package:marieum_app/features/speak/presentation/cubit/speak_mode_cubit.dart';
 import 'package:mocktail/mocktail.dart';
@@ -32,6 +33,9 @@ class _MockQuickPhraseBloc extends MockBloc<QuickPhraseEvent, QuickPhraseState>
 class _MockPlaybackCubit extends MockCubit<PlaybackState>
     implements PlaybackCubit {}
 
+class _MockUtteranceBloc extends MockBloc<UtteranceEvent, UtteranceState>
+    implements UtteranceBloc {}
+
 const testProfile = PatientProfile(
   id: '1',
   nickname: '김환자',
@@ -49,7 +53,15 @@ extension PumpApp on WidgetTester {
     SpeakModeCubit? modeCubit,
     QuickPhraseBloc Function()? createQuickPhraseBloc,
     PlaybackCubit Function(PlaybackRequest)? createPlaybackCubit,
+    UtteranceBloc Function()? createUtteranceBloc,
+    bool reduceMotion = true,
   }) async {
+    // Idle speak-button rings loop forever unless Reduce Motion is on.
+    if (reduceMotion) {
+      platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(disableAnimations: true);
+      addTearDown(platformDispatcher.clearAccessibilityFeaturesTestValue);
+    }
     final bloc = authBloc ?? _MockAuthBloc();
     if (authBloc == null) {
       when(() => bloc.state).thenReturn(AuthState(status));
@@ -83,6 +95,17 @@ extension PumpApp on WidgetTester {
             when(() => quick.stream).thenAnswer((_) => const Stream.empty());
             when(quick.close).thenAnswer((_) async {});
             return quick;
+          },
+      createUtteranceBloc:
+          createUtteranceBloc ??
+          () {
+            final utterance = _MockUtteranceBloc();
+            whenListen(
+              utterance,
+              const Stream<UtteranceState>.empty(),
+              initialState: const UtteranceState(),
+            );
+            return utterance;
           },
       createPlaybackCubit:
           createPlaybackCubit ??

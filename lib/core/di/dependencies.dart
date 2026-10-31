@@ -3,6 +3,7 @@ import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
 import 'package:marieum_app/app/router/app_router.dart';
 import 'package:marieum_app/app/router/auth_router_refresh.dart';
+import 'package:marieum_app/core/audio/recorder.dart';
 import 'package:marieum_app/core/config/app_config.dart';
 import 'package:marieum_app/core/di/voice_dependencies.dart';
 import 'package:marieum_app/core/haptics/haptics.dart';
@@ -24,9 +25,14 @@ import 'package:marieum_app/features/quick_phrase/data/datasources/quick_phrase_
 import 'package:marieum_app/features/quick_phrase/data/repositories/quick_phrase_repository_impl.dart';
 import 'package:marieum_app/features/quick_phrase/domain/repositories/quick_phrase_repository.dart';
 import 'package:marieum_app/features/quick_phrase/presentation/bloc/quick_phrase_bloc.dart';
+import 'package:marieum_app/features/speak/data/datasources/selection_log_queue.dart';
 import 'package:marieum_app/features/speak/data/datasources/speak_preferences_data_source.dart';
+import 'package:marieum_app/features/speak/data/datasources/utterance_data_source.dart';
 import 'package:marieum_app/features/speak/data/repositories/speak_mode_repository_impl.dart';
+import 'package:marieum_app/features/speak/data/repositories/utterance_repository_impl.dart';
 import 'package:marieum_app/features/speak/domain/repositories/speak_mode_repository.dart';
+import 'package:marieum_app/features/speak/domain/repositories/utterance_repository.dart';
+import 'package:marieum_app/features/speak/presentation/bloc/utterance_bloc.dart';
 import 'package:marieum_app/features/speak/presentation/cubit/playback_cubit.dart';
 import 'package:marieum_app/features/speak/presentation/cubit/speak_mode_cubit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -129,8 +135,33 @@ Future<GetIt> configureDependencies({
           tts: dependencies<TtsPort>(),
           haptics: dependencies<VoiceHaptics>(),
         ),
+        createUtteranceBloc: dependencies.call<UtteranceBloc>,
       ),
       dispose: (router) => router.dispose(),
+    )
+    ..registerLazySingleton<UtteranceDataSource>(
+      () => config.useMock
+          ? MockUtteranceDataSource()
+          : RemoteUtteranceDataSource(dependencies<ApiClient>()),
+    )
+    ..registerLazySingleton<UtteranceRepository>(
+      () => UtteranceRepositoryImpl(
+        source: dependencies<UtteranceDataSource>(),
+        sequence: dependencies<SequenceStore>(),
+        queue: SelectionLogQueue(
+          prefs: prefs,
+          sequence: dependencies<SequenceStore>(),
+          send: (body) => dependencies<UtteranceDataSource>().selection(body),
+        ),
+      ),
+    )
+    ..registerFactory<UtteranceBloc>(
+      () => UtteranceBloc(
+        repository: dependencies<UtteranceRepository>(),
+        createRecorder: dependencies.call<Recorder>,
+        tts: dependencies<TtsPort>(),
+        haptics: dependencies<VoiceHaptics>(),
+      ),
     );
   registerVoiceDependencies(dependencies);
   return dependencies;

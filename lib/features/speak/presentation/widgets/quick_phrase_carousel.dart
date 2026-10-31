@@ -3,13 +3,11 @@ import 'dart:async';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:go_router/go_router.dart';
-import 'package:marieum_app/app/router/app_routes.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
 import 'package:marieum_app/features/quick_phrase/domain/entities/quick_phrase.dart';
 import 'package:marieum_app/features/quick_phrase/presentation/bloc/quick_phrase_bloc.dart';
+import 'package:marieum_app/features/quick_phrase/presentation/widgets/play_quick_phrase.dart';
 import 'package:marieum_app/features/quick_phrase/presentation/widgets/quick_phrase_icon.dart';
-import 'package:marieum_app/features/speak/domain/entities/playback_request.dart';
 
 class QuickPhraseCarousel extends StatefulWidget {
   const QuickPhraseCarousel({
@@ -98,19 +96,6 @@ class _QuickPhraseCarouselState extends State<QuickPhraseCarousel>
     unawaited(_nudge.forward(from: 0));
   }
 
-  void _play(QuickPhrase phrase) {
-    context.read<QuickPhraseBloc>().add(QuickPhraseUsed(phrase));
-    unawaited(
-      context.push<void>(
-        AppRoutes.playback,
-        extra: PlaybackRequest(
-          text: phrase.text,
-          origin: PlaybackOrigin.quickPhrase,
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final phrases = context.select<QuickPhraseBloc, List<QuickPhrase>>(
@@ -168,7 +153,9 @@ class _QuickPhraseCarouselState extends State<QuickPhraseCarousel>
                   child: _PhraseTile(
                     phrase: phrases[index],
                     tinted: index % 3 == 0,
-                    onTap: widget.enabled ? () => _play(phrases[index]) : null,
+                    onTap: widget.enabled
+                        ? () => playQuickPhrase(context, phrases[index])
+                        : null,
                   ),
                 ),
               ),

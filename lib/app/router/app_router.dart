@@ -1,4 +1,5 @@
 import 'package:flutter/widgets.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:marieum_app/app/navigation/main_navigation_shell.dart';
 import 'package:marieum_app/app/providers/authenticated_quick_phrase_scope.dart';
@@ -14,7 +15,7 @@ import 'package:marieum_app/features/auth/presentation/pages/signup_page.dart';
 import 'package:marieum_app/features/auth/presentation/pages/splash_page.dart';
 import 'package:marieum_app/features/quick_phrase/presentation/bloc/quick_phrase_bloc.dart';
 import 'package:marieum_app/features/speak/domain/entities/playback_request.dart';
-import 'package:marieum_app/features/speak/domain/entities/speak_mode.dart';
+import 'package:marieum_app/features/speak/presentation/bloc/utterance_bloc.dart';
 import 'package:marieum_app/features/speak/presentation/cubit/playback_cubit.dart';
 import 'package:marieum_app/features/speak/presentation/pages/playback_page.dart';
 import 'package:marieum_app/features/speak/presentation/pages/speak_page.dart';
@@ -25,6 +26,7 @@ GoRouter createAppRouter({
   required AuthRouterRefresh refresh,
   required QuickPhraseBloc Function() createQuickPhraseBloc,
   required PlaybackCubit Function(PlaybackRequest) createPlaybackCubit,
+  required UtteranceBloc Function() createUtteranceBloc,
   String initialLocation = AppRoutes.splash,
 }) {
   final rootKey = GlobalKey<NavigatorState>();
@@ -84,8 +86,10 @@ GoRouter createAppRouter({
             ),
           ),
           StatefulShellRoute.indexedStack(
-            builder: (context, state, shell) =>
-                MainNavigationShell(shell: shell),
+            builder: (context, state, shell) => BlocProvider(
+              create: (_) => createUtteranceBloc(),
+              child: MainNavigationShell(shell: shell),
+            ),
             branches: [
               for (final path in [
                 AppRoutes.speak,
@@ -103,14 +107,6 @@ GoRouter createAppRouter({
                   ],
                 ),
             ],
-          ),
-          GoRoute(
-            path: AppRoutes.utterance,
-            parentNavigatorKey: authenticatedKey,
-            redirect: (context, state) =>
-                state.extra is SpeakMode ? null : AppRoutes.speak,
-            builder: (context, state) =>
-                const PlaceholderPage(title: '내 목소리로 말하기'),
           ),
           GoRoute(
             path: AppRoutes.playback,

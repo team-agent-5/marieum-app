@@ -20,8 +20,7 @@ abstract final class AuthFormValidation {
   static final _userIdPattern = RegExp(r'^[A-Za-z0-9_]{4,20}$');
 
   static Map<String, String> credentials(String userId, String password) => {
-    if (!_userIdPattern.hasMatch(userId))
-      'user_id': '영문·숫자·밑줄 4~20자로 입력해 주세요',
+    if (!_userIdPattern.hasMatch(userId)) 'user_id': '영문·숫자·밑줄 4~20자로 입력해 주세요',
     if (password.length < 8) 'password': '비밀번호는 8자 이상 입력해 주세요',
   };
 

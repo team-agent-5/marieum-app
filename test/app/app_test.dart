@@ -5,7 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:marieum_app/app/marieum_app.dart';
 import 'package:marieum_app/core/ui/adaptive/adaptive_tab_bar.dart';
 import 'package:marieum_app/features/speak/domain/entities/playback_request.dart';
-import 'package:marieum_app/features/speak/domain/entities/speak_mode.dart';
 
 import '../helpers/pump_app.dart';
 
@@ -86,32 +85,27 @@ void main() {
         });
       }
 
-      testWidgets(
-        'replaces utterance with playback and returns to the origin',
-        (tester) async {
-          final router = await tester.pumpApp();
-          addTearDown(router.dispose);
-          unawaited(
-            router.push<void>('/speak/utterance', extra: SpeakMode.precise),
-          );
-          await tester.pumpAndSettle();
-          expect(find.byType(AdaptiveTabBar), findsNothing);
-          unawaited(
-            router.pushReplacement<void>(
-              '/speak/playback',
-              extra: const PlaybackRequest(
-                text: '물 주세요',
-                origin: PlaybackOrigin.utterance,
-              ),
+      testWidgets('opens playback over the tabs and returns to speaking', (
+        tester,
+      ) async {
+        final router = await tester.pumpApp();
+        addTearDown(router.dispose);
+        unawaited(
+          router.push<void>(
+            '/speak/playback',
+            extra: const PlaybackRequest(
+              text: '물 주세요',
+              origin: PlaybackOrigin.quickPhrase,
             ),
-          );
-          await tester.pumpAndSettle();
-          expect(find.text('말하고 있어요'), findsOneWidget);
-          router.pop();
-          await tester.pumpAndSettle();
-          expect(router.state.uri.path, '/speak');
-        },
-      );
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(AdaptiveTabBar), findsNothing);
+        expect(find.text('말하고 있어요'), findsOneWidget);
+        router.pop();
+        await tester.pumpAndSettle();
+        expect(router.state.uri.path, '/speak');
+      });
     });
 
     group('configuration', () {

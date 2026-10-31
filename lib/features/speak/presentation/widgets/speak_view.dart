@@ -1,78 +1,206 @@
 import 'dart:async';
 import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:go_router/go_router.dart';
+import 'package:marieum_app/core/error/failure.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
 import 'package:marieum_app/core/ui/adaptive/adaptive_segmented_control.dart';
 import 'package:marieum_app/features/auth/domain/entities/auth_status.dart';
 import 'package:marieum_app/features/auth/presentation/bloc/auth_bloc.dart';
+import 'package:marieum_app/features/quick_phrase/domain/entities/quick_phrase.dart';
+import 'package:marieum_app/features/quick_phrase/presentation/bloc/quick_phrase_bloc.dart';
+import 'package:marieum_app/features/quick_phrase/presentation/widgets/play_quick_phrase.dart';
 import 'package:marieum_app/features/speak/domain/entities/speak_mode.dart';
+import 'package:marieum_app/features/speak/presentation/bloc/utterance_bloc.dart';
 import 'package:marieum_app/features/speak/presentation/cubit/speak_mode_cubit.dart';
 import 'package:marieum_app/features/speak/presentation/widgets/quick_phrase_carousel.dart';
 import 'package:marieum_app/features/speak/presentation/widgets/speak_cta.dart';
+import 'package:marieum_app/features/speak/presentation/widgets/utterance_sheet.dart';
+import 'package:permission_handler/permission_handler.dart';
 
-class SpeakView extends StatelessWidget {
+class SpeakView extends StatefulWidget {
   const SpeakView({super.key});
+
   @override
-  Widget build(
-    BuildContext context,
-  ) => BlocBuilder<SpeakModeCubit, SpeakModeState>(
-    builder: (context, state) => SafeArea(
-      bottom: false,
-      child: LayoutBuilder(
-        builder: (context, constraints) => SingleChildScrollView(
-          child: SizedBox(
-            height: math.max(
-              620 + (MediaQuery.textScalerOf(context).scale(16) / 16 - 1) * 260,
-              constraints.maxHeight,
-            ),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
-              child: Column(
-                children: [
-                  _Greeting(mode: state.mode),
-                  const SizedBox(height: 14),
-                  SizedBox(
-                    width: double.infinity,
-                    child: AdaptiveSegmentedControl<SpeakMode>(
-                      value: state.mode,
-                      selectedBackground: state.mode == SpeakMode.live
-                          ? AppTokens.warningSoft
-                          : null,
-                      onChanged: (mode) => unawaited(
-                        context.read<SpeakModeCubit>().select(mode),
-                      ),
-                      children: {
-                        for (final mode in SpeakMode.values)
-                          mode: _ModeLabel(
-                            mode: mode,
-                            selected: state.mode == mode,
+  State<SpeakView> createState() => _SpeakViewState();
+}
+
+class _SpeakViewState extends State<SpeakView> {
+  bool _sheetOpen = false;
+  BuildContext? _sheetContext;
+
+  void _onUtterance(BuildContext context, UtteranceState state) {
+    if (state.phase.usesSheet && !_sheetOpen) {
+      unawaited(_openSheet(context));
+    } else if (!state.phase.usesSheet && _sheetOpen) {
+      final sheet = _sheetContext;
+      if (sheet != null && sheet.mounted) Navigator.of(sheet).pop();
+    }
+  }
+
+  Future<void> _openSheet(BuildContext context) async {
+    final utterance = context.read<UtteranceBloc>();
+    final quickPhrases = context.read<QuickPhraseBloc>();
+    _sheetOpen = true;
+    final picked = await showModalBottomSheet<QuickPhrase>(
+      context: context,
+      useRootNavigator: true,
+      isScrollControlled: true,
+      backgroundColor: AppTokens.bg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+      ),
+      builder: (sheetContext) {
+        _sheetContext = sheetContext;
+        return MultiBlocProvider(
+          providers: [
+            BlocProvider.value(value: utterance),
+            BlocProvider.value(value: quickPhrases),
+          ],
+          child: const UtteranceSheet(),
+        );
+      },
+    );
+    _sheetOpen = false;
+    _sheetContext = null;
+    if (utterance.state.phase.usesSheet) {
+      utterance.add(const UtteranceSheetDismissed());
+    }
+    if (picked != null && context.mounted) playQuickPhrase(context, picked);
+  }
+
+  void _showNotice(BuildContext context, Failure failure) {
+    final permanent = failure is PermissionFailure && failure.permanent;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(failure.message),
+          action: permanent
+              ? SnackBarAction(
+                  label: '설정 열기',
+                  onPressed: () => unawaited(openAppSettings()),
+                )
+              : null,
+        ),
+      );
+  }
+
+  @override
+  Widget build(BuildContext context) => MultiBlocListener(
+    listeners: [
+      BlocListener<UtteranceBloc, UtteranceState>(
+        listenWhen: (previous, current) => previous.phase != current.phase,
+        listener: _onUtterance,
+      ),
+      BlocListener<UtteranceBloc, UtteranceState>(
+        listenWhen: (previous, current) =>
+            current.notice != null && previous.noticeId != current.noticeId,
+        listener: (context, state) => _showNotice(context, state.notice!),
+      ),
+    ],
+    child: BlocBuilder<SpeakModeCubit, SpeakModeState>(
+      builder: (context, mode) => BlocBuilder<UtteranceBloc, UtteranceState>(
+        buildWhen: (previous, current) =>
+            previous.phase != current.phase ||
+            previous.elapsed != current.elapsed ||
+            previous.level != current.level,
+        builder: (context, utterance) {
+          final locked = utterance.phase.locksScreen;
+          return SafeArea(
+            bottom: false,
+            child: LayoutBuilder(
+              builder: (context, constraints) => SingleChildScrollView(
+                physics: locked ? const NeverScrollableScrollPhysics() : null,
+                child: SizedBox(
+                  height: math.max(
+                    664 +
+                        (MediaQuery.textScalerOf(context).scale(16) / 16 - 1) *
+                            260,
+                    constraints.maxHeight,
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
+                    child: Column(
+                      children: [
+                        _Locked(
+                          locked: locked,
+                          child: Column(
+                            children: [
+                              _Greeting(mode: mode.mode),
+                              const SizedBox(height: 14),
+                              SizedBox(
+                                width: double.infinity,
+                                child: AdaptiveSegmentedControl<SpeakMode>(
+                                  value: mode.mode,
+                                  selectedBackground:
+                                      mode.mode == SpeakMode.live
+                                      ? AppTokens.warningSoft
+                                      : AppTokens.primarySoft,
+                                  onChanged: (next) => unawaited(
+                                    context.read<SpeakModeCubit>().select(next),
+                                  ),
+                                  children: {
+                                    for (final option in SpeakMode.values)
+                                      option: _ModeLabel(
+                                        mode: option,
+                                        selected: mode.mode == option,
+                                      ),
+                                  },
+                                ),
+                              ),
+                            ],
                           ),
-                      },
+                        ),
+                        Expanded(
+                          child: Center(
+                            child: SpeakCta(
+                              phase: utterance.phase,
+                              elapsed: utterance.elapsed,
+                              level: utterance.level,
+                              onPressed: () =>
+                                  context.read<UtteranceBloc>().add(
+                                    UtteranceButtonPressed(mode.mode),
+                                  ),
+                              onCancel: () => context.read<UtteranceBloc>().add(
+                                const UtteranceCancelPressed(),
+                              ),
+                            ),
+                          ),
+                        ),
+                        _Locked(
+                          locked: locked,
+                          child: QuickPhraseCarousel(enabled: !locked),
+                        ),
+                      ],
                     ),
                   ),
-                  Expanded(
-                    child: Center(
-                      child: SpeakCta(
-                        onLongPress: () {
-                          final mode = context
-                              .read<SpeakModeCubit>()
-                              .state
-                              .mode;
-                          unawaited(
-                            context.push<void>('/speak/utterance', extra: mode),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                  const QuickPhraseCarousel(),
-                ],
+                ),
               ),
             ),
-          ),
-        ),
+          );
+        },
+      ),
+    ),
+  );
+}
+
+/// Blocks touches and hides the controls from assistive tech while recording.
+class _Locked extends StatelessWidget {
+  const _Locked({required this.locked, required this.child});
+  final bool locked;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+    ignoring: locked,
+    child: ExcludeSemantics(
+      excluding: locked,
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 150),
+        opacity: locked ? .45 : 1,
+        child: child,
       ),
     ),
   );
@@ -172,7 +300,7 @@ class _ModeLabel extends StatelessWidget {
             color: selected
                 ? (mode == SpeakMode.live
                       ? AppTokens.warning
-                      : AppTokens.primaryStrong)
+                      : AppTokens.onTonal)
                 : AppTokens.ink2,
           ),
         ),
