@@ -133,6 +133,14 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   /// through the microphone.
   static const echoTail = Duration(seconds: 1);
 
+  /// How long the start of each playback is listened to for the app's own
+  /// loudness at the microphone.
+  static const echoProbe = Duration(milliseconds: 300);
+
+  /// Voice during playback must be this far above the app's own loudness;
+  /// 0.12 of [pcmLevel] is 6 dB.
+  static const echoMargin = 0.12;
+
   final MicStream _mic;
   final LiveStream _stream;
   final UtteranceRepository _repository;
@@ -158,6 +166,12 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   /// Sentences the app spoke, until when their echo may still be heard;
   /// null while still playing.
   final _spoken = <({String text, DateTime? until})>[];
+
+  /// The app's own voice as heard by the microphone, learned from earlier
+  /// playbacks.
+  double? _echoLevel;
+  DateTime? _probeUntil;
+  double _probePeak = 0;
 
   Future<void> start() async {
     if (state.status != LiveStatus.starting) return;
@@ -192,6 +206,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     final level = pcmLevel(chunk);
     final levels = [...state.levels, level];
     if (levels.length > historyLength) levels.removeAt(0);
+    _probeEcho(level);
     final signal = _segmenter.add(chunk, level: level);
     if (_segmenter.hearing ||
         signal is SegmentStarted ||
@@ -311,6 +326,29 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     _subscriptions.add(subscription);
   }
 
+  /// Raises the voice threshold while the app speaks: blocked at first,
+  /// or at the loudness learned before, until the start of this playback
+  /// has been measured.
+  void _startEchoGate(DateTime at) {
+    _probeUntil = at.add(echoProbe);
+    _probePeak = 0;
+    final known = _echoLevel;
+    _segmenter.playbackFloor = known == null ? 1 : known + echoMargin;
+  }
+
+  void _probeEcho(double level) {
+    final until = _probeUntil;
+    if (until == null) return;
+    if (level > _probePeak) _probePeak = level;
+    if (_now().isBefore(until)) return;
+    _probeUntil = null;
+    final known = _echoLevel;
+    final echo = known == null ? _probePeak : (known + _probePeak) / 2;
+    _echoLevel = echo;
+    _segmenter.playbackFloor = echo + echoMargin;
+    AppLog.speak('live echo_level=$echo floor=${echo + echoMargin}');
+  }
+
   bool _isEcho(String text) {
     final now = _now();
     _spoken.removeWhere((s) => s.until != null && !s.until!.isAfter(now));
@@ -418,6 +456,8 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
         ..remove(spoken)
         ..add((text: spoken.text, until: _now().add(echoTail)));
       entry = null;
+      _segmenter.playbackFloor = null;
+      _probeUntil = null;
       if (!_ended && !isClosed) emit(state.copyWith(playingId: () => null));
     }
 
@@ -430,6 +470,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
           entry = (text: text, until: null);
           _spoken.add(entry!);
           emit(state.copyWith(playingId: () => id));
+          _startEchoGate(at);
           onStarted?.call(at);
         },
         onEnded: finishPlayback,

@@ -29,6 +29,7 @@ class TtsService implements PlaybackTtsPort, TtsVoiceSelector {
   bool _koreanAvailable = false;
   Future<bool>? _availabilityCheck;
   List<TtsVoice>? _voices;
+  ({TtsRate rate, TtsVolume volume, String? voice})? _applied;
   Future<List<TtsVoice>>? _voicesCheck;
   String? _voiceId;
   @override
@@ -127,22 +128,29 @@ class TtsService implements PlaybackTtsPort, TtsVoiceSelector {
       await availableVoices();
       if (active.isCompleted) return;
       final voice = currentVoice;
-      await _engine.configure(
-        rate: TtsMapping.rate(_platform, rate),
-        volume: TtsMapping.volume(volume),
-      );
-      if (active.isCompleted) return;
-      if (voice != null) {
-        try {
-          await _engine.setVoice(voice);
-        } on Object {
-          // configure has already selected the default Korean voice.
+      final settings = (rate: rate, volume: volume, voice: voice?.id);
+      // Reapplying unchanged settings delays every sentence by about a
+      // second, mostly in the audio session.
+      if (settings != _applied) {
+        _applied = null;
+        await _engine.configure(
+          rate: TtsMapping.rate(_platform, rate),
+          volume: TtsMapping.volume(volume),
+        );
+        if (active.isCompleted) return;
+        if (voice != null) {
+          try {
+            await _engine.setVoice(voice);
+          } on Object {
+            // configure has already selected the default Korean voice.
+          }
         }
+        if (active.isCompleted) return;
+        // Apply last, after flutter_tts has configured its shared iOS session.
+        await _audioSession.configure();
+        if (active.isCompleted) return;
+        _applied = settings;
       }
-      if (active.isCompleted) return;
-      // Apply last, after flutter_tts has configured its shared iOS session.
-      await _audioSession.configure();
-      if (active.isCompleted) return;
       AppLog.tts('device ${voice?.name ?? 'default'} "$text"');
       if (onStarted == null) {
         await _engine.speak(text);
@@ -159,6 +167,7 @@ class TtsService implements PlaybackTtsPort, TtsVoiceSelector {
       if (!active.isCompleted) active.complete(const Success<void>(null));
     } on Object catch (error) {
       AppLog.tts('device voice failed $error');
+      _applied = null;
       if (!active.isCompleted) {
         _koreanAvailable = false;
         active.complete(

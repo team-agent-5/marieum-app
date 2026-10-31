@@ -53,6 +53,7 @@ void registerVoiceDependencies(
         engine: PlatformRecordingEngine(),
         permission: PlatformMicrophonePermission(),
         audioSession: dependencies<VoiceAudioSession>(),
+        echoCancel: platform == VoicePlatform.android,
       ),
     )
     ..registerLazySingleton<VoiceHaptics>(

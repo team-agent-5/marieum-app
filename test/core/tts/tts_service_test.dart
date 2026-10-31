@@ -317,6 +317,15 @@ void main() {
         },
       );
 
+      test('skips setup when the settings have not changed', () async {
+        when(engine.koreanVoices).thenAnswer((_) async => const []);
+        await service.speak('첫 재생');
+        await service.speak('둘째 재생');
+        verify(() => engine.configure(rate: 0.5, volume: 0.8)).called(1);
+        verify(() => session.configure()).called(1);
+        verify(() => engine.speak('둘째 재생')).called(1);
+      });
+
       test('continues speech when setting the selected voice fails', () async {
         when(
           engine.koreanVoices,

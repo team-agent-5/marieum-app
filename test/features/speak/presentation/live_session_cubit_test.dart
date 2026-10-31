@@ -177,6 +177,37 @@ void main() {
       ),
     );
 
+    test("listens past the app's own voice while it speaks", () async {
+      final cubit = build();
+      addTearDown(cubit.close);
+      await cubit.start();
+      await phrase('물 좀 주세요');
+      // Until the app's loudness is known, nothing counts as voice.
+      verify(() => segmenter.playbackFloor = 1).called(1);
+
+      when(
+        () => segmenter.add(any(), level: any(named: 'level')),
+      ).thenReturn(null);
+      // A steady -20 dBFS tone, level 0.6.
+      final echo = ByteData(3200);
+      for (var i = 0; i < 1600; i++) {
+        echo.setInt16(i * 2, 3277, Endian.little);
+      }
+      input.add(echo.buffer.asUint8List());
+      await pumpEventQueue();
+      now = now.add(LiveSessionCubit.echoProbe);
+      input.add(Uint8List(3200));
+      await pumpEventQueue();
+      final floors = verify(
+        () => segmenter.playbackFloor = captureAny(),
+      ).captured;
+      expect(floors.single as double, closeTo(0.72, 0.01));
+
+      speaking.complete(const Success(null));
+      await pumpEventQueue();
+      verify(() => segmenter.playbackFloor = null).called(1);
+    });
+
     blocTest<LiveSessionCubit, LiveSessionState>(
       'shows interim immediately and speaks a completed final before logging',
       build: build,

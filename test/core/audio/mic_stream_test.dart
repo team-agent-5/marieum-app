@@ -34,11 +34,22 @@ void main() {
         audioSession: session,
       );
     });
-    test('starts the stream with echo cancellation', () async {
+    test('leaves echo cancellation off unless asked', () async {
       await mic.start();
-      verify(() => engine.startStream(echoCancel: true)).called(1);
+      verify(() => engine.startStream()).called(1);
       await mic.stop();
       verify(engine.stop).called(1);
+    });
+
+    test('asks the engine for echo cancellation when enabled', () async {
+      final cancelling = MicStream(
+        engine: engine,
+        permission: permission,
+        audioSession: session,
+        echoCancel: true,
+      );
+      await cancelling.start();
+      verify(() => engine.startStream(echoCancel: true)).called(1);
     });
   });
 }
