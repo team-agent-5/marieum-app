@@ -70,7 +70,7 @@ class DuplexRecordingEngine implements RecordingEngine {
   DuplexRecordingEngine({DuplexAudio? audio})
     : _audio = audio ?? DuplexAudio.instance;
 
-  static const gainDb = 9.0;
+  static const gainDb = 12.0;
 
   final DuplexAudio _audio;
 

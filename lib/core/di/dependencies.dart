@@ -6,7 +6,6 @@ import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
 import 'package:marieum_app/app/router/app_router.dart';
 import 'package:marieum_app/app/router/auth_router_refresh.dart';
-import 'package:marieum_app/core/audio/live_sound.dart';
 import 'package:marieum_app/core/audio/mic_stream.dart';
 import 'package:marieum_app/core/audio/recorder.dart';
 import 'package:marieum_app/core/audio/speech_pace.dart';
@@ -192,12 +191,7 @@ Future<GetIt> configureDependencies({
         stream: dependencies<LiveStream>(),
         repository: dependencies<UtteranceRepository>(),
         tts: dependencies<PlaybackTtsPort>(),
-        muteWhileSpeaking: true,
-        pace: dependencies<SpeechPaceTracker>(),
-        // iOS already raises the level by a fixed gain after its processing.
-        sound: LiveSound(
-          level: defaultTargetPlatform == TargetPlatform.android,
-        ),
+        muteWhileSpeaking: defaultTargetPlatform == TargetPlatform.android,
       ),
     )
     ..registerFactory<UtteranceBloc>(
