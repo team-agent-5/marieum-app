@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:marieum_app/core/error/failure.dart';
 import 'package:marieum_app/core/error/result.dart';
+import 'package:marieum_app/core/log/app_log.dart';
 import 'package:marieum_app/core/tts/cloud_audio_player.dart';
 import 'package:marieum_app/core/tts/cloud_tts_cache.dart';
 import 'package:marieum_app/core/tts/cloud_tts_client.dart';
@@ -57,18 +58,23 @@ class CloudTtsPort implements TtsPort {
 
   @override
   Future<Result<void>> speak(String text) async {
-    if (!enabled) return _device.speak(text);
+    if (!enabled) {
+      AppLog.tts('device voice (no gateway key) "$text"');
+      return _device.speak(text);
+    }
     _stopped = false;
     File? file;
     try {
       file = await _audioFor(text, _voice).timeout(fetchLimit);
-    } on Object {
+    } on Object catch (error) {
+      AppLog.tts('cloud unavailable (${error.runtimeType}), device voice');
       file = null;
     }
     if (_stopped) {
       return const FailureResult(TtsFailure('음성 재생이 중지되었습니다.'));
     }
     if (file == null) return _device.speak(text);
+    AppLog.tts('cloud ${_voice.id} "$text"');
     try {
       await _player.play(
         file.path,
@@ -82,10 +88,11 @@ class CloudTtsPort implements TtsPort {
       return _stopped
           ? const FailureResult(TtsFailure('음성 재생이 중지되었습니다.'))
           : const Success(null);
-    } on Object {
+    } on Object catch (error) {
       if (_stopped) {
         return const FailureResult(TtsFailure('음성 재생이 중지되었습니다.'));
       }
+      AppLog.tts('cloud playback failed (${error.runtimeType}), device voice');
       return _device.speak(text);
     }
   }
@@ -124,7 +131,12 @@ class CloudTtsPort implements TtsPort {
       try {
         final cached = await _cache.find(voice.id, text);
         if (cached != null) return cached;
+        final started = DateTime.now();
         final audio = await _client.synthesize(text, voice);
+        AppLog.tts(
+          'synthesized ${voice.id} "$text" ${audio.length}B '
+          '${DateTime.now().difference(started).inMilliseconds}ms',
+        );
         return await _cache.save(voice.id, text, audio);
       } finally {
         // Removed after this turn so concurrent callers share the request.

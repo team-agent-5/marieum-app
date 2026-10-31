@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:marieum_app/core/audio/voice_audio_session.dart';
 import 'package:marieum_app/core/error/failure.dart';
 import 'package:marieum_app/core/error/result.dart';
+import 'package:marieum_app/core/log/app_log.dart';
 import 'package:marieum_app/core/tts/tts_engine.dart';
 import 'package:marieum_app/core/tts/tts_mapping.dart';
 import 'package:marieum_app/core/tts/tts_port.dart';
@@ -123,9 +124,11 @@ class TtsService implements TtsPort, TtsVoiceSelector {
       // Apply last, after flutter_tts has configured its shared iOS session.
       await _audioSession.configure();
       if (active.isCompleted) return;
+      AppLog.tts('device ${voice?.name ?? 'default'} "$text"');
       await _engine.speak(text);
       if (!active.isCompleted) active.complete(const Success<void>(null));
     } on Object catch (error) {
+      AppLog.tts('device voice failed $error');
       if (!active.isCompleted) {
         _koreanAvailable = false;
         active.complete(

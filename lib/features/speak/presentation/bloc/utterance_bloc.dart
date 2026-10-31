@@ -8,6 +8,7 @@ import 'package:marieum_app/core/audio/recorder.dart';
 import 'package:marieum_app/core/error/failure.dart';
 import 'package:marieum_app/core/error/result.dart';
 import 'package:marieum_app/core/haptics/haptics.dart';
+import 'package:marieum_app/core/log/app_log.dart';
 import 'package:marieum_app/core/speech/live_transcriber.dart';
 import 'package:marieum_app/features/speak/domain/entities/speak_mode.dart';
 import 'package:marieum_app/features/speak/domain/entities/utterance.dart';
@@ -310,6 +311,10 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
       return;
     }
     _feedback(VoiceHaptic.recordingStarted);
+    AppLog.speak(
+      'recording started mode=${mode.name} liveText=$transcribing '
+      'attempt=${reaskCount + 1}',
+    );
     _recordingStartedAt = _now();
     _ticker = Timer.periodic(tick, (_) => add(const _Ticked()));
     _levels = recorder.levels.listen((level) => add(_LevelChanged(level)));
@@ -357,6 +362,7 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
     if (state.phase != UtterancePhase.recording) return;
     final started = _recordingStartedAt;
     if (started == null || _now().difference(started) < minHold) {
+      AppLog.speak('hold too short, dropped');
       ++_generation;
       await _disposeRecorder();
       emit(UtteranceState(mode: state.mode, playbackId: state.playbackId));
@@ -389,6 +395,10 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
     _feedback(
       reachedLimit ? VoiceHaptic.recordingLimit : VoiceHaptic.recordingStopped,
     );
+    AppLog.speak(
+      'recording ended ${state.elapsed.inMilliseconds}ms '
+      'limit=$reachedLimit ok=${event.result is Success}',
+    );
     switch (event.result) {
       case FailureResult(:final failure):
         _notify(emit, failure, UtteranceState(mode: state.mode));
@@ -413,6 +423,11 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
       case Success(:final value):
         transcription = value;
     }
+    AppLog.speak(
+      'heard "${transcription.finalTranscript}" '
+      'confidence=${transcription.asrConfidence} '
+      'low=${transcription.isLowConfidence}',
+    );
     if (transcription.isLowConfidence) {
       _reask(emit, transcription);
       return;
@@ -435,6 +450,10 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
     }
     final suggested = await _repository.suggest(transcription);
     if (generation != _generation) return;
+    AppLog.speak(switch (suggested) {
+      Success(:final value) => 'candidates ${value.candidates.length}',
+      FailureResult(:final failure) => 'suggest failed ${failure.runtimeType}',
+    });
     switch (suggested) {
       case Success(:final value) when !value.isEmpty:
         _candidatesShownAt = _now();
@@ -509,13 +528,16 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
   }
 
   /// Hands the sentence to the shared playback screen and ends the flow.
-  void _speak(String text, Emitter<UtteranceState> emit) => emit(
-    UtteranceState(
-      mode: state.mode,
-      spokenText: text,
-      playbackId: state.playbackId + 1,
-    ),
-  );
+  void _speak(String text, Emitter<UtteranceState> emit) {
+    AppLog.speak('play "$text"');
+    emit(
+      UtteranceState(
+        mode: state.mode,
+        spokenText: text,
+        playbackId: state.playbackId + 1,
+      ),
+    );
+  }
 
   Future<void> _onRetry(
     UtteranceRetryPressed event,
@@ -567,14 +589,17 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
     Emitter<UtteranceState> emit,
     Failure failure,
     UtteranceState next,
-  ) => emit(
-    UtteranceState(
-      phase: UtterancePhase.failed,
-      mode: next.mode,
-      notice: failure,
-      playbackId: state.playbackId,
-    ),
-  );
+  ) {
+    AppLog.speak('failed ${failure.runtimeType}: ${failure.message}');
+    emit(
+      UtteranceState(
+        phase: UtterancePhase.failed,
+        mode: next.mode,
+        notice: failure,
+        playbackId: state.playbackId,
+      ),
+    );
+  }
 
   Duration _since(DateTime? start) =>
       start == null ? Duration.zero : _now().difference(start);
