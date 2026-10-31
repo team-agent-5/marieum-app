@@ -23,9 +23,22 @@ class TtsService implements TtsPort {
   bool _disposed = false;
   bool _stopping = false;
   Future<Result<void>>? _stopOperation;
+  bool _koreanAvailable = false;
+  Future<bool>? _availabilityCheck;
 
   @override
-  Future<bool> isKoreanAvailable() => _engine.isLanguageAvailable('ko-KR');
+  Future<bool> isKoreanAvailable() {
+    if (_koreanAvailable) return Future.value(true);
+    return _availabilityCheck ??=
+        Future<bool>.sync(
+              () => _engine.isLanguageAvailable('ko-KR'),
+            )
+            .then((available) {
+              _koreanAvailable = available;
+              return available;
+            })
+            .whenComplete(() => _availabilityCheck = null);
+  }
 
   @override
   Future<Result<void>> speak(String text) async {
@@ -54,6 +67,7 @@ class TtsService implements TtsPort {
       if (!active.isCompleted) active.complete(const Success<void>(null));
     } on Object catch (error) {
       if (!active.isCompleted) {
+        _koreanAvailable = false;
         active.complete(
           FailureResult(
             error is Failure ? error : TtsFailure(error.toString()),

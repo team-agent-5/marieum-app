@@ -100,7 +100,11 @@ class Recorder {
     current.timer?.cancel();
     try {
       await _engine.stop();
-      await current.ended.future;
+      // Some platforms omit onDone after stop; retain the captured PCM.
+      await current.ended.future.timeout(
+        const Duration(seconds: 1),
+        onTimeout: () {},
+      );
       if (current.error != null) {
         Error.throwWithStackTrace(current.error!, current.stack!);
       }

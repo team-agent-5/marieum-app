@@ -106,6 +106,63 @@ void main() {
       },
     );
     test(
+      'reuses successful Korean availability for subsequent speech',
+      () async {
+        expect(await service.isKoreanAvailable(), isTrue);
+        expect(await service.speak('첫 문장'), isA<Success<void>>());
+        expect(await service.speak('다음 문장'), isA<Success<void>>());
+        verify(() => engine.isLanguageAvailable('ko-KR')).called(1);
+      },
+    );
+
+    test('retries unavailable Korean and caches a later success', () async {
+      var attempts = 0;
+      when(
+        () => engine.isLanguageAvailable('ko-KR'),
+      ).thenAnswer((_) async => ++attempts > 1);
+      expect(await service.speak('첫 문장'), isA<FailureResult<void>>());
+      expect(await service.speak('재시도'), isA<Success<void>>());
+      expect(await service.speak('다음 문장'), isA<Success<void>>());
+      verify(() => engine.isLanguageAvailable('ko-KR')).called(2);
+    });
+
+    test('retries a failed availability request', () async {
+      var attempts = 0;
+      when(() => engine.isLanguageAvailable('ko-KR')).thenAnswer((_) async {
+        if (++attempts == 1) throw Exception('engine not ready');
+        return true;
+      });
+      expect(await service.speak('첫 문장'), isA<FailureResult<void>>());
+      expect(await service.speak('재시도'), isA<Success<void>>());
+      expect(await service.speak('다음 문장'), isA<Success<void>>());
+      verify(() => engine.isLanguageAvailable('ko-KR')).called(2);
+    });
+
+    test('coalesces concurrent Korean availability checks', () async {
+      final pending = Completer<bool>();
+      when(
+        () => engine.isLanguageAvailable('ko-KR'),
+      ).thenAnswer((_) => pending.future);
+      final first = service.isKoreanAvailable();
+      final second = service.isKoreanAvailable();
+      pending.complete(true);
+      expect(await first, isTrue);
+      expect(await second, isTrue);
+      verify(() => engine.isLanguageAvailable('ko-KR')).called(1);
+    });
+
+    test('rechecks Korean availability after a speech failure', () async {
+      var attempts = 0;
+      when(() => engine.speak(any())).thenAnswer((_) async {
+        if (++attempts == 1) throw Exception('voice became unavailable');
+      });
+      expect(await service.speak('첫 문장'), isA<FailureResult<void>>());
+      expect(await service.speak('재시도'), isA<Success<void>>());
+      expect(await service.speak('다음 문장'), isA<Success<void>>());
+      verify(() => engine.isLanguageAvailable('ko-KR')).called(2);
+    });
+
+    test(
       'rejects overlapping speech without replacing the active utterance',
       () async {
         final completion = Completer<void>();

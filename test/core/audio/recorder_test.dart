@@ -96,6 +96,30 @@ void main() {
         verify(() => engine.stop()).called(1);
       },
     );
+    test(
+      'finishes with buffered PCM when the stopped stream never closes',
+      () async {
+        when(() => engine.stop()).thenAnswer((_) async {});
+        await recorder.start();
+        source.add(List.filled(320, 1));
+        final stopping = recorder.stop();
+        await Future<void>.delayed(Duration.zero);
+        source.add(List.filled(320, 2));
+        try {
+          final audio = await stopping.timeout(const Duration(seconds: 3));
+          expect(audio.bytes.sublist(44), [
+            ...List.filled(320, 1),
+            ...List.filled(320, 2),
+          ]);
+          expect(audio.durationMs, 20);
+          expect(source.hasListener, isFalse);
+          verify(() => engine.stop()).called(1);
+        } finally {
+          await source.close();
+        }
+      },
+    );
+
     for (final access in [
       MicrophoneAccess.denied,
       MicrophoneAccess.permanent,
