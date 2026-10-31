@@ -647,15 +647,26 @@ class _AttemptBars extends StatelessWidget {
   );
 }
 
-class _QuickOptions extends StatelessWidget {
+class _QuickOptions extends StatefulWidget {
   const _QuickOptions({required this.moreLabel});
   final String moreLabel;
 
   @override
+  State<_QuickOptions> createState() => _QuickOptionsState();
+}
+
+/// Shows three quick phrases, and all of them in place once "more" is
+/// pressed, so the patient can pick one without leaving the sheet.
+class _QuickOptionsState extends State<_QuickOptions> {
+  static const _preview = 3;
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
-    final phrases = context.select<QuickPhraseBloc, List<QuickPhrase>>(
-      (bloc) => bloc.state.phrases.take(3).toList(growable: false),
+    final all = context.select<QuickPhraseBloc, List<QuickPhrase>>(
+      (bloc) => bloc.state.phrases,
     );
+    final phrases = _expanded ? all : all.take(_preview).toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -698,18 +709,19 @@ class _QuickOptions extends StatelessWidget {
           ),
           const SizedBox(height: 8),
         ],
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          style: TextButton.styleFrom(
-            minimumSize: const Size.fromHeight(50),
-            foregroundColor: AppTokens.primaryStrong,
-            textStyle: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
+        if (all.length > _preview)
+          TextButton(
+            onPressed: () => setState(() => _expanded = !_expanded),
+            style: TextButton.styleFrom(
+              minimumSize: const Size.fromHeight(50),
+              foregroundColor: AppTokens.primaryStrong,
+              textStyle: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+              ),
             ),
+            child: Text(_expanded ? '접기' : widget.moreLabel),
           ),
-          child: Text(moreLabel),
-        ),
       ],
     );
   }
