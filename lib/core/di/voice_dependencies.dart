@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:get_it/get_it.dart';
+import 'package:marieum_app/core/audio/mic_stream.dart';
 import 'package:marieum_app/core/audio/recorder.dart';
 import 'package:marieum_app/core/audio/recording_engine.dart';
 import 'package:marieum_app/core/audio/voice_audio_session.dart';
@@ -42,6 +43,13 @@ void registerVoiceDependencies(
     ..registerLazySingleton<TtsPort>(() => dependencies<CloudTtsPort>())
     ..registerFactory<Recorder>(
       () => Recorder(
+        engine: PlatformRecordingEngine(),
+        permission: PlatformMicrophonePermission(),
+        audioSession: dependencies<VoiceAudioSession>(),
+      ),
+    )
+    ..registerFactory<MicStream>(
+      () => MicStream(
         engine: PlatformRecordingEngine(),
         permission: PlatformMicrophonePermission(),
         audioSession: dependencies<VoiceAudioSession>(),

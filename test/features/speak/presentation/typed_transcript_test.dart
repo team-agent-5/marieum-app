@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:marieum_app/features/speak/presentation/widgets/recording_view.dart';
+import 'package:marieum_app/features/speak/presentation/widgets/typed_transcript.dart';
 
 void main() {
   Future<void> pumpText(

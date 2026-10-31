@@ -18,10 +18,6 @@ class Recorder {
   static const maxDuration = Duration(seconds: 10);
   static const maxPcmBytes = 320000;
 
-  /// Live mode has no fixed limit; this cap keeps one upload under the
-  /// server's 2 MiB request size.
-  static const liveMaxDuration = Duration(seconds: 60);
-
   /// PCM16 16 kHz mono.
   static const bytesPerSecond = 32000;
   final RecordingEngine _engine;
@@ -42,17 +38,16 @@ class Recorder {
     return current.result.future;
   }
 
-  Future<void> start({Duration limit = maxDuration}) {
+  Future<void> start() {
     if (_disposed ||
         _starting != null ||
         (_current != null && !_current!.result.isCompleted)) {
       throw StateError('Recorder is unavailable or already recording.');
     }
-    return _starting = _start(limit);
+    return _starting = _start();
   }
 
-  Future<void> _start(Duration limit) async {
-    final maxBytes = limit.inMilliseconds * bytesPerSecond ~/ 1000;
+  Future<void> _start() async {
     try {
       final access = await _permission.request();
       if (access != MicrophoneAccess.granted) {
@@ -70,7 +65,7 @@ class Recorder {
         ..result.future.ignore()
         ..subscription = stream.listen(
           (chunk) {
-            final room = maxBytes - current.length;
+            final room = maxPcmBytes - current.length;
             final count = chunk.length < room ? chunk.length : room;
             if (count > 0) {
               final bytes = Uint8List.fromList(chunk.sublist(0, count));
@@ -79,7 +74,7 @@ class Recorder {
                 ..length += count;
               if (!_levels.isClosed) _levels.add(pcmLevel(chunk));
             }
-            if (current.length == maxBytes) unawaited(_finish(current));
+            if (current.length == maxPcmBytes) unawaited(_finish(current));
           },
           onError: (Object error, StackTrace stack) {
             current
@@ -93,7 +88,7 @@ class Recorder {
           },
         )
         ..timer = _createTimer(
-          limit,
+          maxDuration,
           () => unawaited(_finish(current)),
         );
     } finally {

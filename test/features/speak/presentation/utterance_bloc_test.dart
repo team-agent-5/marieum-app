@@ -74,9 +74,7 @@ void main() {
   Recorder newRecorder() {
     final recorder = _MockRecorder();
     final recording = Completer<RecordedAudio>();
-    when(
-      () => recorder.start(limit: any(named: 'limit')),
-    ).thenAnswer((_) async {});
+    when(recorder.start).thenAnswer((_) async {});
     when(() => recorder.levels).thenAnswer((_) => const Stream.empty());
     when(() => recorder.completed).thenAnswer((_) => recording.future);
     when(recorder.stop).thenAnswer((_) async {
@@ -261,22 +259,15 @@ void main() {
     );
 
     blocTest<UtteranceBloc, UtteranceState>(
-      'retry rejects the shown candidates and records again',
+      'retry rejects the shown candidates and waits for the next hold',
       build: build,
       seed: () => const UtteranceState(
-        mode: SpeakMode.live,
         phase: UtterancePhase.suggesting,
         transcription: _clear,
         suggestions: _suggestions,
       ),
       act: (bloc) => bloc.add(const UtteranceRetryPressed()),
-      expect: () => [
-        isA<UtteranceState>().having(
-          phaseOf,
-          'phase',
-          UtterancePhase.recording,
-        ),
-      ],
+      expect: () => const [UtteranceState()],
       verify: (_) => verify(
         () => repository.logRejected(
           transcription: _clear,
@@ -314,14 +305,14 @@ void main() {
         return build();
       },
       act: (bloc) async {
-        bloc.add(const UtteranceButtonPressed(SpeakMode.live));
         for (var attempt = 0; attempt < 3; attempt++) {
+          bloc.add(const UtteranceButtonPressed(SpeakMode.precise));
           await settle();
-          bloc.add(const UtteranceButtonPressed(SpeakMode.live));
+          bloc.add(const UtteranceButtonPressed(SpeakMode.precise));
           await settle();
           if (attempt < 2) bloc.add(const UtteranceRetryPressed());
+          await settle();
         }
-        await settle();
         bloc.add(const UtteranceRetryPressed());
         await settle();
       },
@@ -396,9 +387,7 @@ void main() {
         repository: repository,
         createRecorder: () {
           final recorder = newRecorder() as _MockRecorder;
-          when(
-            () => recorder.start(limit: any(named: 'limit')),
-          ).thenThrow(
+          when(recorder.start).thenThrow(
             const PermissionFailure(permanent: true),
           );
           return recorder;
@@ -418,53 +407,6 @@ void main() {
         );
       },
     );
-
-    group('live mode', () {
-      blocTest<UtteranceBloc, UtteranceState>(
-        'speaks the transcript right away without candidates',
-        build: () {
-          when(
-            () => repository.bypass(any(), latency: any(named: 'latency')),
-          ).thenAnswer((_) async => const Success('물 좀 주세요'));
-          return build();
-        },
-        act: (bloc) async {
-          bloc.add(const UtteranceButtonPressed(SpeakMode.live));
-          await settle();
-          bloc.add(const UtteranceButtonPressed(SpeakMode.live));
-          await settle();
-        },
-        verify: (bloc) {
-          verifyNever(() => repository.suggest(any()));
-          expect(bloc.state.phase, UtterancePhase.idle);
-          expect(bloc.state.spokenText, '물 좀 주세요');
-          expect(bloc.state.playbackId, 1);
-        },
-      );
-
-      blocTest<UtteranceBloc, UtteranceState>(
-        'asks again when the server refuses a low-confidence bypass',
-        build: () {
-          when(
-            () => repository.bypass(any(), latency: any(named: 'latency')),
-          ).thenAnswer(
-            (_) async =>
-                const FailureResult(ValidationFailure(fieldErrors: {})),
-          );
-          return build();
-        },
-        act: (bloc) async {
-          bloc.add(const UtteranceButtonPressed(SpeakMode.live));
-          await settle();
-          bloc.add(const UtteranceButtonPressed(SpeakMode.live));
-          await settle();
-        },
-        verify: (bloc) {
-          expect(bloc.state.phase, UtterancePhase.reask);
-          expect(bloc.state.spokenText, isNull);
-        },
-      );
-    });
 
     test('stops recording and speech when closed', () async {
       final bloc = build()
@@ -525,27 +467,5 @@ void main() {
       expect: () => const [UtteranceState(reaskCount: 1)],
       verify: (_) => expect(recorders, isEmpty),
     );
-  });
-
-  test('live mode records up to the long limit', () async {
-    when(
-      () => repository.bypass(any(), latency: any(named: 'latency')),
-    ).thenAnswer((_) async => const Success('물'));
-    final bloc = build()..add(const UtteranceButtonPressed(SpeakMode.live));
-    addTearDown(bloc.close);
-    await settle();
-    verify(
-      () => recorders.single.start(limit: Recorder.liveMaxDuration),
-    ).called(1);
-  });
-
-  test('accuracy mode keeps the 10 second limit', () async {
-    final bloc = build()..add(const UtteranceHoldStarted(SpeakMode.precise));
-    addTearDown(bloc.close);
-    await settle();
-    final limit = verify(
-      () => recorders.single.start(limit: captureAny(named: 'limit')),
-    ).captured.single;
-    expect(limit, Recorder.maxDuration);
   });
 }

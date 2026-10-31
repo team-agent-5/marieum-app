@@ -21,6 +21,7 @@ import 'package:marieum_app/features/settings/presentation/cubit/settings_cubit.
 import 'package:marieum_app/features/speak/domain/entities/playback_request.dart';
 import 'package:marieum_app/features/speak/domain/entities/speak_mode.dart';
 import 'package:marieum_app/features/speak/presentation/bloc/utterance_bloc.dart';
+import 'package:marieum_app/features/speak/presentation/cubit/live_session_cubit.dart';
 import 'package:marieum_app/features/speak/presentation/cubit/playback_cubit.dart';
 import 'package:marieum_app/features/speak/presentation/cubit/speak_mode_cubit.dart';
 import 'package:mocktail/mocktail.dart';
@@ -41,6 +42,9 @@ class _MockPlaybackCubit extends MockCubit<PlaybackState>
 
 class _MockUtteranceBloc extends MockBloc<UtteranceEvent, UtteranceState>
     implements UtteranceBloc {}
+
+class _MockLiveSessionCubit extends MockCubit<LiveSessionState>
+    implements LiveSessionCubit {}
 
 class _MockHistoryCubit extends MockCubit<HistoryState>
     implements HistoryCubit {}
@@ -75,6 +79,7 @@ extension PumpApp on WidgetTester {
     String loginUserId = 'demo_a',
     QuickPhraseBloc Function()? createQuickPhraseBloc,
     PlaybackCubit Function(PlaybackRequest)? createPlaybackCubit,
+    LiveSessionCubit Function()? createLiveSessionCubit,
     UtteranceBloc Function()? createUtteranceBloc,
     bool reduceMotion = true,
   }) async {
@@ -180,6 +185,21 @@ extension PumpApp on WidgetTester {
             when(playback.start).thenAnswer((_) async {});
             when(playback.close).thenAnswer((_) async {});
             return playback;
+          },
+      createLiveSessionCubit:
+          createLiveSessionCubit ??
+          () {
+            final live = _MockLiveSessionCubit();
+            whenListen(
+              live,
+              const Stream<LiveSessionState>.empty(),
+              initialState: const LiveSessionState(
+                status: LiveStatus.listening,
+              ),
+            );
+            when(live.start).thenAnswer((_) async {});
+            when(live.stop).thenAnswer((_) async {});
+            return live;
           },
     );
     await pumpWidget(
