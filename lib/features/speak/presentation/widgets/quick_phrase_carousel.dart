@@ -135,7 +135,9 @@ class _QuickPhraseCarouselState extends State<QuickPhraseCarousel>
         const SizedBox(height: 10),
         LayoutBuilder(
           builder: (context, constraints) => SizedBox(
-            height: MediaQuery.textScalerOf(context).scale(16) / 16 * 112,
+            height:
+                _cardHeight(context, phrases, (constraints.maxWidth - 10) / 2) +
+                6,
             child: ListView.separated(
               key: const ValueKey('quick_phrase_carousel'),
               scrollDirection: Axis.horizontal,
@@ -166,6 +168,60 @@ class _QuickPhraseCarouselState extends State<QuickPhraseCarousel>
       ],
     );
   }
+}
+
+const _cardPadding = 13.0;
+const _iconBox = 36.0;
+const _gap = 6.0;
+const _minCardHeight = 104.0;
+const _phraseStyle = TextStyle(
+  fontSize: 16,
+  height: 1.3,
+  letterSpacing: -.32,
+  fontWeight: FontWeight.w800,
+  color: AppTokens.ink,
+);
+const _hintStyle = TextStyle(
+  fontSize: 10.5,
+  fontWeight: FontWeight.w700,
+  color: AppTokens.ink3,
+);
+
+/// Every card shares the height of the tallest phrase so two-line phrases,
+/// large system text and the app's large text mode never overflow.
+double _cardHeight(
+  BuildContext context,
+  List<QuickPhrase> phrases,
+  double cardWidth,
+) {
+  final system = MediaQuery.textScalerOf(context);
+  final base = DefaultTextStyle.of(context).style;
+  final phraseScaler = KeyTextScaler(
+    system,
+    LargeTextScope.enabledOf(context) ? 1.25 : 1,
+  );
+  final textWidth = (cardWidth - _cardPadding * 2).clamp(1.0, double.infinity);
+  var phraseHeight = 0.0;
+  for (final phrase in phrases) {
+    final painter = TextPainter(
+      text: TextSpan(text: phrase.text, style: base.merge(_phraseStyle)),
+      maxLines: 2,
+      textScaler: phraseScaler,
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: textWidth);
+    if (painter.height > phraseHeight) phraseHeight = painter.height;
+    painter.dispose();
+  }
+  final hint = TextPainter(
+    text: TextSpan(text: '눌러서 바로 재생', style: base.merge(_hintStyle)),
+    maxLines: 1,
+    textScaler: system,
+    textDirection: TextDirection.ltr,
+  )..layout(maxWidth: textWidth);
+  final height =
+      _cardPadding * 2 + _iconBox + _gap * 2 + phraseHeight + hint.height;
+  hint.dispose();
+  return height < _minCardHeight ? _minCardHeight : height;
 }
 
 class _PhraseTile extends StatelessWidget {
@@ -230,25 +286,8 @@ class _PhraseTile extends StatelessWidget {
                     color: AppTokens.primaryStrong,
                   ),
                 ),
-                KeyText(
-                  phrase.text,
-                  maxLines: 2,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    height: 1.3,
-                    letterSpacing: -.32,
-                    fontWeight: FontWeight.w800,
-                    color: AppTokens.ink,
-                  ),
-                ),
-                const Text(
-                  '눌러서 바로 재생',
-                  style: TextStyle(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w700,
-                    color: AppTokens.ink3,
-                  ),
-                ),
+                KeyText(phrase.text, maxLines: 2, style: _phraseStyle),
+                const Text('눌러서 바로 재생', style: _hintStyle),
               ],
             ),
           ),
