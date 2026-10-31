@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:marieum_app/core/error/failure.dart';
 import 'package:marieum_app/core/error/result.dart';
@@ -52,6 +53,21 @@ void main() {
       await tester.tap(find.text('시작하기'));
       await tester.pumpAndSettle();
       verify(repository.markOnboarded).called(1);
+    });
+    testWidgets('swipes between steps', (tester) async {
+      final router = await tester.pumpApp(
+        status: _fresh,
+        repository: repository,
+      );
+      addTearDown(router.dispose);
+      final pages = find.byKey(const ValueKey('onboarding_pages'));
+      await tester.fling(pages, const Offset(-300, 0), 1000);
+      await tester.pumpAndSettle();
+      expect(find.text('2 / 3'), findsOneWidget);
+      expect(find.text('다음'), findsOneWidget);
+      await tester.fling(pages, const Offset(300, 0), 1000);
+      await tester.pumpAndSettle();
+      expect(find.text('1 / 3'), findsOneWidget);
     });
     testWidgets('skip saves onboarding and offers retry on failure', (
       tester,

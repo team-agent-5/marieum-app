@@ -25,6 +25,11 @@ class PushDrawer extends StatefulWidget {
   static const drawerLag = 26.0;
   static const backdrop = Color(0xFFDEE9FA);
 
+  /// Width of the left strip that starts an opening swipe, beyond the
+  /// system back-gesture area.
+  static const edgeWidth = 24.0;
+  static const flingVelocity = 365.0;
+
   static double drawerWidthFor(double screenWidth) =>
       (screenWidth * 0.8).clamp(280.0, 320.0);
 
@@ -74,6 +79,22 @@ class _PushDrawerState extends State<PushDrawer>
     unawaited(_controller.forward());
   }
 
+  double _dragExtent = 1;
+
+  void _dragStart(DragStartDetails _) => _controller.stop();
+
+  void _dragUpdate(DragUpdateDetails details) {
+    _controller.value += details.primaryDelta! / _dragExtent;
+  }
+
+  void _dragEnd(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    final open = velocity.abs() >= PushDrawer.flingVelocity
+        ? velocity > 0
+        : _controller.value >= .5;
+    unawaited(open ? _controller.forward() : _controller.reverse());
+  }
+
   void close({bool animate = true}) {
     if (_controller.isDismissed) return;
     if (animate) {
@@ -96,6 +117,10 @@ class _PushDrawerState extends State<PushDrawer>
         builder: (context, constraints) {
           final drawerWidth = PushDrawer.drawerWidthFor(constraints.maxWidth);
           final shift = drawerWidth - PushDrawer.overlap;
+          _dragExtent = shift;
+          final edge =
+              MediaQuery.systemGestureInsetsOf(context).left +
+              PushDrawer.edgeWidth;
           return AnimatedBuilder(
             animation: _controller,
             builder: (context, _) {
@@ -115,11 +140,16 @@ class _PushDrawerState extends State<PushDrawer>
                           offset: Offset(-PushDrawer.drawerLag * (1 - t), 0),
                           child: Opacity(
                             opacity: 0.55 + 0.45 * t,
-                            child: Semantics(
-                              label: '앱 메뉴',
-                              container: true,
-                              explicitChildNodes: true,
-                              child: widget.drawer,
+                            child: GestureDetector(
+                              onHorizontalDragStart: _dragStart,
+                              onHorizontalDragUpdate: _dragUpdate,
+                              onHorizontalDragEnd: _dragEnd,
+                              child: Semantics(
+                                label: '앱 메뉴',
+                                container: true,
+                                explicitChildNodes: true,
+                                child: widget.drawer,
+                              ),
                             ),
                           ),
                         ),
@@ -159,6 +189,25 @@ class _PushDrawerState extends State<PushDrawer>
                                     key: const ValueKey('push_drawer_close'),
                                     behavior: HitTestBehavior.opaque,
                                     onTap: close,
+                                    onHorizontalDragStart: _dragStart,
+                                    onHorizontalDragUpdate: _dragUpdate,
+                                    onHorizontalDragEnd: _dragEnd,
+                                  ),
+                                ),
+                              // Stays mounted through an opening swipe so the
+                              // gesture is not cut off.
+                              if (widget.enabled && _controller.value < 1)
+                                Positioned(
+                                  key: const ValueKey('push_drawer_edge'),
+                                  left: 0,
+                                  top: 0,
+                                  bottom: 0,
+                                  width: edge,
+                                  child: GestureDetector(
+                                    behavior: HitTestBehavior.translucent,
+                                    onHorizontalDragStart: _dragStart,
+                                    onHorizontalDragUpdate: _dragUpdate,
+                                    onHorizontalDragEnd: _dragEnd,
                                   ),
                                 ),
                             ],
