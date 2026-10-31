@@ -19,14 +19,11 @@ import 'package:marieum_app/core/storage/token_vault.dart';
 import 'package:marieum_app/core/tts/tts_port.dart';
 import 'package:marieum_app/core/tts/tts_service.dart';
 import 'package:marieum_app/features/auth/data/datasources/auth_data_source.dart';
-import 'package:marieum_app/features/auth/data/datasources/mock_auth_data_source.dart';
 import 'package:marieum_app/features/auth/data/datasources/remote_auth_data_source.dart';
 import 'package:marieum_app/features/auth/data/repositories/auth_repository_impl.dart';
-import 'package:marieum_app/features/auth/domain/entities/auth_status.dart';
 import 'package:marieum_app/features/auth/domain/repositories/auth_repository.dart';
 import 'package:marieum_app/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:marieum_app/features/history/data/datasources/history_data_source.dart';
-import 'package:marieum_app/features/history/data/datasources/mock_history_data_source.dart';
 import 'package:marieum_app/features/history/data/datasources/remote_history_data_source.dart';
 import 'package:marieum_app/features/history/data/repositories/history_repository_impl.dart';
 import 'package:marieum_app/features/history/domain/repositories/history_repository.dart';
@@ -37,7 +34,6 @@ import 'package:marieum_app/features/quick_phrase/data/datasources/quick_phrase_
 import 'package:marieum_app/features/quick_phrase/data/repositories/quick_phrase_repository_impl.dart';
 import 'package:marieum_app/features/quick_phrase/domain/repositories/quick_phrase_repository.dart';
 import 'package:marieum_app/features/quick_phrase/presentation/bloc/quick_phrase_bloc.dart';
-import 'package:marieum_app/features/settings/data/datasources/mock_settings_mirror.dart';
 import 'package:marieum_app/features/settings/data/datasources/remote_settings_mirror.dart';
 import 'package:marieum_app/features/settings/data/datasources/settings_mirror.dart';
 import 'package:marieum_app/features/settings/data/repositories/settings_repository_impl.dart';
@@ -88,9 +84,7 @@ Future<GetIt> configureDependencies({
     )
     ..registerLazySingleton<ApiClient>(() => ApiClient(dependencies<Dio>()))
     ..registerLazySingleton<SpeakPreferencesDataSource>(
-      () => config.useMock
-          ? MockSpeakPreferencesDataSource()
-          : RemoteSpeakPreferencesDataSource(dependencies<ApiClient>()),
+      () => RemoteSpeakPreferencesDataSource(dependencies<ApiClient>()),
     )
     ..registerLazySingleton<SpeakModeRepository>(
       () => SpeakModeRepositoryImpl(
@@ -103,9 +97,7 @@ Future<GetIt> configureDependencies({
       dispose: (cubit) => cubit.close(),
     )
     ..registerLazySingleton<PresetDataSource>(
-      () => config.useMock
-          ? MockPresetDataSource()
-          : RemotePresetDataSource(dependencies<ApiClient>()),
+      () => RemotePresetDataSource(dependencies<ApiClient>()),
     )
     ..registerLazySingleton<QuickPhraseRepository>(
       () => QuickPhraseRepositoryImpl(
@@ -118,9 +110,7 @@ Future<GetIt> configureDependencies({
       () => QuickPhraseBloc(dependencies<QuickPhraseRepository>()),
     )
     ..registerLazySingleton<AuthDataSource>(
-      () => config.useMock
-          ? MockAuthDataSource(prefs)
-          : RemoteAuthDataSource(dependencies<ApiClient>()),
+      () => RemoteAuthDataSource(dependencies<ApiClient>()),
     )
     ..registerLazySingleton<AuthRepository>(
       () => AuthRepositoryImpl(
@@ -161,9 +151,7 @@ Future<GetIt> configureDependencies({
       dispose: (router) => router.dispose(),
     )
     ..registerLazySingleton<UtteranceDataSource>(
-      () => config.useMock
-          ? MockUtteranceDataSource()
-          : RemoteUtteranceDataSource(dependencies<ApiClient>()),
+      () => RemoteUtteranceDataSource(dependencies<ApiClient>()),
     )
     ..registerLazySingleton<UtteranceRepository>(
       () => UtteranceRepositoryImpl(
@@ -188,15 +176,7 @@ Future<GetIt> configureDependencies({
   registerVoiceDependencies(dependencies);
   dependencies
     ..registerLazySingleton<HistoryDataSource>(
-      () => config.useMock
-          ? MockHistoryDataSource(
-              userId: () =>
-                  switch (dependencies<AuthRepository>().currentStatus) {
-                    AuthAuthenticated(:final profile) => profile.userId,
-                    _ => '',
-                  },
-            )
-          : RemoteHistoryDataSource(dependencies<ApiClient>()),
+      () => RemoteHistoryDataSource(dependencies<ApiClient>()),
     )
     ..registerLazySingleton<HistoryRepository>(
       () => HistoryRepositoryImpl(dependencies<HistoryDataSource>()),
@@ -208,9 +188,7 @@ Future<GetIt> configureDependencies({
       () => HistoryCubit(dependencies<HistoryRepository>()),
     )
     ..registerLazySingleton<SettingsMirror>(
-      () => config.useMock
-          ? MockSettingsMirror()
-          : RemoteSettingsMirror(dependencies<ApiClient>()),
+      () => RemoteSettingsMirror(dependencies<ApiClient>()),
     )
     ..registerSingleton<SettingsRepository>(
       SettingsRepositoryImpl(

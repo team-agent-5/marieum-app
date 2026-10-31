@@ -19,8 +19,3 @@ class RemoteSpeakPreferencesDataSource implements SpeakPreferencesDataSource {
     decode: (_) {},
   );
 }
-
-class MockSpeakPreferencesDataSource implements SpeakPreferencesDataSource {
-  @override
-  Future<Result<void>> mirrorMode(SpeakMode mode) async => const Success(null);
-}
