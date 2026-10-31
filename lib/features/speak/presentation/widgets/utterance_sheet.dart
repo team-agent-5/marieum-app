@@ -27,13 +27,13 @@ class UtteranceSheet extends StatelessWidget {
               maxHeight: MediaQuery.sizeOf(context).height * 0.9,
             ),
             child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(18, 10, 18, 14),
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   const _Handle(),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 18),
                   switch (state.phase) {
                     UtterancePhase.suggesting => _Candidates(state: state),
                     UtterancePhase.reask when state.reaskExhausted =>
@@ -147,22 +147,103 @@ class _SingleCandidate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final candidate = state.suggestions!.candidates.single;
+    final reason = reasonText(candidate);
+    void speak() =>
+        context.read<UtteranceBloc>().add(UtteranceCandidateTapped(candidate));
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Text('이렇게 말씀드릴게요', style: AppTokens.title),
-        const SizedBox(height: 14),
-        _CandidateTile(
-          candidate: candidate,
-          selected: false,
-          onTap: () => context.read<UtteranceBloc>().add(
-            UtteranceCandidateTapped(candidate),
+        Semantics(
+          header: true,
+          child: const Text(
+            '이렇게 말씀드릴게요',
+            style: TextStyle(
+              fontSize: 20,
+              height: 1.35,
+              fontWeight: FontWeight.w800,
+              color: AppTokens.ink,
+            ),
           ),
         ),
-        const SizedBox(height: 12),
-        const Text('문장을 누르면 소리로 전달해요.', style: AppTokens.copy),
-        const SizedBox(height: 14),
+        const SizedBox(height: 4),
+        const Text('맞으면 아래 버튼을 눌러 주세요.', style: AppTokens.copy),
+        const SizedBox(height: 16),
+        Semantics(
+          button: true,
+          label: '${candidate.text}${reason == null ? '' : ', $reason'}, 말하기',
+          excludeSemantics: true,
+          child: Material(
+            color: AppTokens.surfaceBlue,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+              side: const BorderSide(color: AppTokens.primarySoft, width: 1.5),
+            ),
+            child: InkWell(
+              key: ValueKey('candidate_${candidate.rank}'),
+              borderRadius: BorderRadius.circular(20),
+              onTap: speak,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    KeyText(
+                      candidate.text,
+                      style: const TextStyle(
+                        fontSize: 40,
+                        height: 1.25,
+                        fontWeight: FontWeight.w800,
+                        color: AppTokens.ink,
+                      ),
+                    ),
+                    if (reason != null) ...[
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.auto_awesome_outlined,
+                            size: 15,
+                            color: AppTokens.onTonal,
+                          ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              reason,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: AppTokens.onTonal,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 18),
+        FilledButton.icon(
+          key: const ValueKey('utterance_speak'),
+          onPressed: speak,
+          icon: const Icon(Icons.volume_up_rounded),
+          label: const KeyText('이 말로 말하기'),
+          style: FilledButton.styleFrom(
+            minimumSize: const Size.fromHeight(58),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppTokens.buttonRadius),
+            ),
+            textStyle: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
         _SecondaryButton(
           key: const ValueKey('utterance_retry'),
           icon: Icons.mic_none_rounded,
