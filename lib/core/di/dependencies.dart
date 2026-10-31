@@ -2,6 +2,7 @@ import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
 import 'package:marieum_app/app/router/app_router.dart';
 import 'package:marieum_app/core/config/app_config.dart';
+import 'package:marieum_app/core/di/voice_dependencies.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Loads preferences before any future settings or mode cubit is constructed.
@@ -16,5 +17,6 @@ Future<GetIt> configureDependencies({
       createAppRouter,
       dispose: (router) => router.dispose(),
     );
+  registerVoiceDependencies(dependencies);
   return dependencies;
 }

@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
 
@@ -20,6 +21,27 @@ abstract final class AppTheme {
       useMaterial3: true,
       colorScheme: colors,
       fontFamily: AppTokens.fontFamily,
+      cupertinoOverrideTheme: const CupertinoThemeData(
+        textTheme: CupertinoTextThemeData(
+          textStyle: TextStyle(fontFamily: AppTokens.fontFamily),
+          navTitleTextStyle: TextStyle(
+            fontFamily: AppTokens.fontFamily,
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: AppTokens.ink,
+          ),
+          navLargeTitleTextStyle: TextStyle(
+            fontFamily: AppTokens.fontFamily,
+            fontSize: 30,
+            fontWeight: FontWeight.w800,
+            color: AppTokens.ink,
+          ),
+          tabLabelTextStyle: TextStyle(
+            fontFamily: AppTokens.fontFamily,
+            fontSize: 11,
+          ),
+        ),
+      ),
       scaffoldBackgroundColor: AppTokens.bg,
       focusColor: AppTokens.focus,
       textTheme: const TextTheme(

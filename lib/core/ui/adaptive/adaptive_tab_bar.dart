@@ -23,6 +23,7 @@ class AdaptiveTabBar extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppTokens.tabRadius),
           child: isIOS
               ? CupertinoTabBar(
+                  border: null,
                   currentIndex: selectedIndex,
                   onTap: onSelected,
                   height: AppTokens.tabHeight,
