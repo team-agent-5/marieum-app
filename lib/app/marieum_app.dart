@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:go_router/go_router.dart';
 import 'package:marieum_app/core/theme/app_theme.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
+import 'package:marieum_app/core/ui/key_text.dart';
+import 'package:marieum_app/features/settings/presentation/cubit/settings_cubit.dart';
 
 class MarieumApp extends StatelessWidget {
   const MarieumApp({required this.router, super.key});
@@ -29,7 +32,13 @@ class MarieumApp extends StatelessWidget {
         );
         return MediaQuery(
           data: boundedMedia,
-          child: child ?? const SizedBox.shrink(),
+          child: BlocSelector<SettingsCubit, SettingsState, bool>(
+            selector: (state) => state.settings.largeText,
+            builder: (context, large) => LargeTextScope(
+              enabled: large,
+              child: child ?? const SizedBox.shrink(),
+            ),
+          ),
         );
       },
     );

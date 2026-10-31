@@ -136,7 +136,11 @@ void main() {
           status: const AuthAuthenticated(_newProfile),
           repository: repository,
         );
-        await tester.tap(find.text('완료'));
+        await tester.tap(find.text('다음'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('다음'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('시작하기'));
         await tester.pump();
         verify(repository.markOnboarded).called(1);
         await tester.pumpWidget(const SizedBox.shrink());
@@ -145,7 +149,7 @@ void main() {
         addTearDown(reviewRouter.dispose);
         unawaited(reviewRouter.push<void>('/onboarding?review=1'));
         await tester.pumpAndSettle();
-        await tester.tap(find.text('돌아가기'));
+        await tester.tap(find.text('닫기'));
         await tester.pumpAndSettle();
         expect(reviewRouter.state.uri.path, '/speak');
         verifyNoMoreInteractions(repository);

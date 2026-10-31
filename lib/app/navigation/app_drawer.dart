@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:marieum_app/app/router/app_routes.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
 import 'package:marieum_app/features/auth/presentation/bloc/auth_bloc.dart';
+import 'package:marieum_app/features/history/presentation/widgets/recent_requests_section.dart';
 
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
@@ -46,7 +47,7 @@ class AppDrawer extends StatelessWidget {
               icon: Icons.insights_outlined,
               path: AppRoutes.insight,
             ),
-            const _SectionTitle('최근 요청'),
+            const RecentRequestsSection(),
             const Divider(),
             const _DrawerLink(
               label: '사용 방법 다시 보기',
