@@ -11,6 +11,8 @@ dependencies:
   bloc_concurrency: ^0.3.0
   cupertino_icons: ^2.0.0
   dio: ^5.11.1
+  duplex_audio:
+    path: packages/duplex_audio
   equatable: ^3.0.0
   flutter:
     sdk: flutter

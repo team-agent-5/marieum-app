@@ -17,7 +17,6 @@ import 'package:marieum_app/core/storage/secure_token_store.dart';
 import 'package:marieum_app/core/storage/sequence_store.dart';
 import 'package:marieum_app/core/storage/token_vault.dart';
 import 'package:marieum_app/core/tts/cloud_tts_port.dart';
-import 'package:marieum_app/core/tts/live_tts_port.dart';
 import 'package:marieum_app/core/tts/tts_port.dart';
 import 'package:marieum_app/core/tts/tts_service.dart';
 import 'package:marieum_app/features/auth/data/datasources/auth_data_source.dart';
@@ -185,7 +184,7 @@ Future<GetIt> configureDependencies({
         mic: dependencies<MicStream>(),
         stream: dependencies<LiveStream>(),
         repository: dependencies<UtteranceRepository>(),
-        tts: LiveTtsPort(dependencies<CloudTtsPort>()),
+        tts: dependencies<PlaybackTtsPort>(),
       ),
     )
     ..registerFactory<UtteranceBloc>(

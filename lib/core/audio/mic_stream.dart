@@ -15,8 +15,7 @@ class MicStream {
     this.echoCancel = false,
   });
 
-  /// iOS voice processing weakens and reshapes speech enough to hurt
-  /// recognition, so only Android turns echo cancellation on.
+  /// Removes the app's own voice from the input while it speaks.
   final bool echoCancel;
 
   final RecordingEngine _engine;
