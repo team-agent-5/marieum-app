@@ -37,7 +37,7 @@ void main() {
       );
       addTearDown(router.dispose);
       expect(find.text('1 / 3'), findsOneWidget);
-      expect(find.text('말하기 버튼을 누르고 말씀하세요'), findsOneWidget);
+      expect(find.text('말하기 버튼으로 말씀하세요'), findsOneWidget);
       await tester.tap(find.text('다음'));
       await tester.pumpAndSettle();
       expect(find.text('2 / 3'), findsOneWidget);

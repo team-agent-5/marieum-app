@@ -41,7 +41,7 @@ class _SpeakViewState extends State<SpeakView> {
       final sheet = _sheetContext;
       if (sheet != null && sheet.mounted) Navigator.of(sheet).pop();
     }
-    final recording = state.phase.locksScreen;
+    final recording = state.phase.locksScreen && state.mode == SpeakMode.live;
     final route = _recordingRoute;
     if (recording && route == null) {
       unawaited(_openRecording(context));
@@ -181,13 +181,17 @@ class _SpeakViewState extends State<SpeakView> {
                               phase: utterance.phase,
                               elapsed: utterance.elapsed,
                               level: utterance.level,
+                              hold: mode.mode == SpeakMode.precise,
                               onPressed: () =>
                                   context.read<UtteranceBloc>().add(
                                     UtteranceButtonPressed(mode.mode),
                                   ),
-                              onCancel: () => context.read<UtteranceBloc>().add(
-                                const UtteranceCancelPressed(),
-                              ),
+                              onHoldStart: () => context
+                                  .read<UtteranceBloc>()
+                                  .add(UtteranceHoldStarted(mode.mode)),
+                              onHoldEnd: () => context
+                                  .read<UtteranceBloc>()
+                                  .add(const UtteranceHoldEnded()),
                             ),
                           ),
                         ),

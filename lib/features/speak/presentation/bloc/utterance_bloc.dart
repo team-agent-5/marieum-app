@@ -44,6 +44,20 @@ final class UtteranceButtonPressed extends UtteranceEvent {
   List<Object?> get props => [mode];
 }
 
+/// Accuracy mode: the button is held while speaking.
+final class UtteranceHoldStarted extends UtteranceEvent {
+  const UtteranceHoldStarted(this.mode);
+  final SpeakMode mode;
+  @override
+  List<Object?> get props => [mode];
+}
+
+/// Releasing the held button ends the recording; a very short hold, such as
+/// one interrupted by a permission prompt, is dropped instead.
+final class UtteranceHoldEnded extends UtteranceEvent {
+  const UtteranceHoldEnded();
+}
+
 final class UtteranceCancelPressed extends UtteranceEvent {
   const UtteranceCancelPressed();
 }
@@ -187,6 +201,16 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
        _now = now ?? DateTime.now,
        super(const UtteranceState()) {
     on<UtteranceButtonPressed>(_onButton);
+    on<UtteranceHoldStarted>((event, emit) async {
+      if (state.phase == UtterancePhase.idle) {
+        await _startRecording(
+          event.mode,
+          emit,
+          reaskCount: state.reaskCount,
+        );
+      }
+    });
+    on<UtteranceHoldEnded>(_onHoldEnded);
     on<UtteranceCancelPressed>(_onCancel);
     on<UtteranceCandidateTapped>(_onCandidate);
     on<UtteranceConfirmPressed>(_onConfirm);
@@ -207,6 +231,7 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
   }
 
   static const maxReask = 3;
+  static const minHold = Duration(milliseconds: 400);
   static const tick = Duration(milliseconds: 100);
 
   final UtteranceRepository _repository;
@@ -233,7 +258,7 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
   ) async {
     switch (state.phase) {
       case UtterancePhase.idle:
-        await _startRecording(event.mode, emit, reaskCount: 0);
+        await _startRecording(event.mode, emit, reaskCount: state.reaskCount);
       case UtterancePhase.recording:
         await _recorder?.stop().then((_) {}, onError: (Object _) {});
       case _:
@@ -262,7 +287,8 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
     _transcriber = transcriber;
     final microphone = await recorder.requestPermission();
     if (generation != _generation) return;
-    final transcribing = microphone && await transcriber.start();
+    final transcribing =
+        mode == SpeakMode.live && microphone && await transcriber.start();
     if (generation != _generation) {
       await transcriber.stop();
       return;
@@ -322,6 +348,21 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
             : elapsed,
       ),
     );
+  }
+
+  Future<void> _onHoldEnded(
+    UtteranceHoldEnded event,
+    Emitter<UtteranceState> emit,
+  ) async {
+    if (state.phase != UtterancePhase.recording) return;
+    final started = _recordingStartedAt;
+    if (started == null || _now().difference(started) < minHold) {
+      ++_generation;
+      await _disposeRecorder();
+      emit(UtteranceState(mode: state.mode, playbackId: state.playbackId));
+      return;
+    }
+    await _recorder?.stop().then((_) {}, onError: (Object _) {});
   }
 
   Future<void> _onCancel(
@@ -496,6 +537,18 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
         break;
       case _:
         return;
+    }
+    if (state.mode == SpeakMode.precise) {
+      // The patient holds the main button again to speak.
+      ++_generation;
+      emit(
+        UtteranceState(
+          mode: state.mode,
+          reaskCount: state.reaskCount,
+          playbackId: state.playbackId,
+        ),
+      );
+      return;
     }
     await _startRecording(state.mode, emit, reaskCount: state.reaskCount);
   }
