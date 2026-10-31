@@ -63,6 +63,26 @@ class PlaybackView extends StatelessWidget {
                           ),
                         ),
                       ),
+                      if (failed) ...[
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            key: const ValueKey('playback_retry'),
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size(0, 52),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(15),
+                              ),
+                            ),
+                            onPressed: () => unawaited(
+                              context.read<PlaybackCubit>().retry(),
+                            ),
+                            icon: const Icon(Icons.replay_rounded),
+                            label: const Text('다시 재생'),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
                       SizedBox(
                         width: double.infinity,
                         child: OutlinedButton(

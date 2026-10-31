@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:marieum_app/core/error/failure.dart';
 import 'package:marieum_app/core/error/result.dart';
 import 'package:marieum_app/core/haptics/haptics.dart';
 import 'package:marieum_app/core/tts/tts_port.dart';
@@ -102,6 +103,21 @@ void main() {
       await tester.pump(const Duration(milliseconds: 1000));
       expect(progress(), greaterThan(early));
       expect(early, greaterThan(0));
+      await tester.pump(PlaybackCubit.returnDelay);
+    });
+    testWidgets('failed playback can be retried', (tester) async {
+      await pumpView(tester);
+      speaking.complete(const FailureResult(TtsFailure('소리를 낼 수 없어요')));
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('소리를 재생하지 못했어요'), findsOneWidget);
+
+      speaking = Completer();
+      await tester.tap(find.byKey(const ValueKey('playback_retry')));
+      await tester.pump();
+      expect(find.text('말하고 있어요'), findsOneWidget);
+      verify(() => tts.speak('물 주세요')).called(2);
+      speaking.complete(const Success(null));
       await tester.pump(PlaybackCubit.returnDelay);
     });
   });

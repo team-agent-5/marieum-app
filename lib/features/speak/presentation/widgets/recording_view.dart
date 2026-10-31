@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:marieum_app/core/audio/recorder.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
 import 'package:marieum_app/core/ui/adaptive/adaptive_top_bar.dart';
 import 'package:marieum_app/features/speak/domain/entities/speak_mode.dart';
@@ -49,16 +50,20 @@ class RecordingView extends StatelessWidget {
         body: SafeArea(
           top: false,
           child: BlocBuilder<UtteranceBloc, UtteranceState>(
-            buildWhen: (previous, current) =>
-                current.phase == UtterancePhase.recording,
+            buildWhen: (previous, current) => current.phase.locksScreen,
             builder: (context, state) {
               final live = state.mode == SpeakMode.live;
+              final analyzing = state.phase == UtterancePhase.analyzing;
               return Padding(
                 padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _Header(live: live, elapsed: state.elapsed),
+                    _Header(
+                      live: live,
+                      analyzing: analyzing,
+                      elapsed: state.elapsed,
+                    ),
                     const SizedBox(height: 16),
                     Flexible(
                       child: SingleChildScrollView(
@@ -69,10 +74,25 @@ class RecordingView extends StatelessWidget {
                       ),
                     ),
                     const Spacer(),
-                    VoiceWave(height: 58, level: state.level),
+                    if (analyzing)
+                      const SizedBox(
+                        height: 58,
+                        child: Center(
+                          child: SizedBox.square(
+                            dimension: 34,
+                            child: CircularProgressIndicator(strokeWidth: 3.5),
+                          ),
+                        ),
+                      )
+                    else
+                      VoiceWave(height: 58, level: state.level),
                     const SizedBox(height: 4),
                     Text(
-                      live ? '녹음을 끝내면 바로 음성으로 전달해요' : '계속 말씀해 주세요',
+                      analyzing
+                          ? '말씀하신 내용을 확인하고 있어요'
+                          : live
+                          ? '녹음을 끝내면 바로 음성으로 전달해요'
+                          : '계속 말씀해 주세요',
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         fontSize: 14,
@@ -82,8 +102,9 @@ class RecordingView extends StatelessWidget {
                     const SizedBox(height: 28),
                     FilledButton(
                       key: const ValueKey('recording_finish'),
-                      onPressed: () =>
-                          bloc.add(UtteranceButtonPressed(state.mode)),
+                      onPressed: analyzing
+                          ? null
+                          : () => bloc.add(UtteranceButtonPressed(state.mode)),
                       style: FilledButton.styleFrom(
                         minimumSize: const Size.fromHeight(
                           AppTokens.buttonHeight,
@@ -99,7 +120,7 @@ class RecordingView extends StatelessWidget {
                           ),
                         ),
                       ),
-                      child: const Text('녹음 끝내기'),
+                      child: Text(analyzing ? '확인하고 있어요' : '녹음 끝내기'),
                     ),
                     const SizedBox(height: 10),
                     OutlinedButton.icon(
@@ -137,55 +158,86 @@ class RecordingView extends StatelessWidget {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.live, required this.elapsed});
+  const _Header({
+    required this.live,
+    required this.analyzing,
+    required this.elapsed,
+  });
   final bool live;
+  final bool analyzing;
   final Duration elapsed;
+
+  static String _clock(int seconds) =>
+      '${(seconds ~/ 60).toString().padLeft(2, '0')}:'
+      '${(seconds % 60).toString().padLeft(2, '0')}';
 
   @override
   Widget build(BuildContext context) {
     final seconds = elapsed.inSeconds;
-    final clock =
-        '${(seconds ~/ 60).toString().padLeft(2, '0')}:'
-        '${(seconds % 60).toString().padLeft(2, '0')}';
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    final limit = Recorder.maxDuration.inSeconds;
+    final modeColor = live ? AppTokens.warning : AppTokens.primaryStrong;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                live ? '실시간 모드' : '정확도 모드',
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                  color: AppTokens.primaryStrong,
-                ),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    live ? '실시간 모드' : '정확도 모드',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: modeColor,
+                    ),
+                  ),
+                  Semantics(
+                    header: true,
+                    child: Text(
+                      analyzing ? '알아듣고 있어요' : '듣고 있어요',
+                      style: AppTokens.title,
+                    ),
+                  ),
+                ],
               ),
+            ),
+            if (!analyzing)
               Semantics(
-                header: true,
-                child: const Text('듣고 있어요', style: AppTokens.title),
-              ),
-            ],
-          ),
-        ),
-        Semantics(
-          label: '녹음 $seconds초',
-          excludeSemantics: true,
-          child: Row(
-            children: [
-              const _BlinkingDot(),
-              const SizedBox(width: 7),
-              Text(
-                clock,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                  color: AppTokens.primaryStrong,
-                  fontFeatures: [FontFeature.tabularFigures()],
+                label: '녹음 $seconds초, 최대 $limit초',
+                excludeSemantics: true,
+                child: Row(
+                  children: [
+                    const _BlinkingDot(),
+                    const SizedBox(width: 7),
+                    Text(
+                      '${_clock(seconds)} / ${_clock(limit)}',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: AppTokens.primaryStrong,
+                        fontFeatures: [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
+          ],
+        ),
+        const SizedBox(height: 12),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(2),
+          child: LinearProgressIndicator(
+            key: const ValueKey('recording_limit'),
+            minHeight: 4,
+            value: analyzing
+                ? 1
+                : (elapsed.inMilliseconds / Recorder.maxDuration.inMilliseconds)
+                      .clamp(0.0, 1.0),
+            color: AppTokens.primary,
+            backgroundColor: AppTokens.primarySoft,
           ),
         ),
       ],

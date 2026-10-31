@@ -158,7 +158,7 @@ void main() {
       expect(find.byType(RecordingView), findsOneWidget);
       expect(find.text('내 목소리로 말하기'), findsOneWidget);
       expect(find.text('정확도 모드'), findsWidgets);
-      expect(find.text('00:02'), findsOneWidget);
+      expect(find.text('00:02 / 00:10'), findsOneWidget);
 
       await tester.tap(find.byKey(const ValueKey('recording_finish')));
       verify(
@@ -166,6 +166,10 @@ void main() {
       ).called(1);
 
       await show(tester, const UtteranceState(phase: UtterancePhase.analyzing));
+      expect(find.byType(RecordingView), findsOneWidget);
+      expect(find.text('알아듣고 있어요'), findsOneWidget);
+
+      await show(tester, _suggesting);
       expect(find.byType(RecordingView), findsNothing);
     });
 
@@ -206,6 +210,17 @@ void main() {
   });
 
   group('candidate sheet', () {
+    testWidgets('a chosen sentence opens the shared playback screen', (
+      tester,
+    ) async {
+      await pump(tester, _suggesting);
+      await emit(
+        tester,
+        const UtteranceState(spokenText: '물 주세요', playbackId: 1),
+      );
+      expect(find.text('말하고 있어요'), findsOneWidget);
+    });
+
     testWidgets('one clear candidate is shown large and spoken directly', (
       tester,
     ) async {

@@ -9,7 +9,6 @@ import 'package:marieum_app/core/error/failure.dart';
 import 'package:marieum_app/core/error/result.dart';
 import 'package:marieum_app/core/haptics/haptics.dart';
 import 'package:marieum_app/core/speech/live_transcriber.dart';
-import 'package:marieum_app/core/tts/tts_port.dart';
 import 'package:marieum_app/features/speak/domain/entities/speak_mode.dart';
 import 'package:marieum_app/features/speak/domain/entities/utterance.dart';
 import 'package:marieum_app/features/speak/domain/repositories/utterance_repository.dart';
@@ -19,8 +18,6 @@ import 'package:mocktail/mocktail.dart';
 class _MockRepository extends Mock implements UtteranceRepository {}
 
 class _MockRecorder extends Mock implements Recorder {}
-
-class _MockTts extends Mock implements TtsPort {}
 
 class _MockHaptics extends Mock implements VoiceHaptics {}
 
@@ -50,7 +47,6 @@ const _suggestions = Suggestions(
 
 void main() {
   late _MockRepository repository;
-  late _MockTts tts;
   late _MockHaptics haptics;
   late List<_MockRecorder> recorders;
   late List<Completer<RecordedAudio>> recordings;
@@ -66,13 +62,10 @@ void main() {
 
   setUp(() {
     repository = _MockRepository();
-    tts = _MockTts();
     haptics = _MockHaptics();
     recorders = [];
     recordings = [];
     when(() => haptics.trigger(any())).thenAnswer((_) async {});
-    when(() => tts.speak(any())).thenAnswer((_) async => const Success(null));
-    when(tts.stop).thenAnswer((_) async => const Success(null));
     when(() => repository.transcribe(any())).thenAnswer(
       (_) async => const Success(_clear),
     );
@@ -84,6 +77,7 @@ void main() {
   Recorder newRecorder() {
     final recorder = _MockRecorder();
     final recording = Completer<RecordedAudio>();
+    when(recorder.requestPermission).thenAnswer((_) async => true);
     when(recorder.start).thenAnswer((_) async {});
     when(() => recorder.levels).thenAnswer((_) => const Stream.empty());
     when(() => recorder.completed).thenAnswer((_) => recording.future);
@@ -100,7 +94,6 @@ void main() {
   UtteranceBloc build() => UtteranceBloc(
     repository: repository,
     createRecorder: newRecorder,
-    tts: tts,
     haptics: haptics,
   );
 
@@ -233,7 +226,6 @@ void main() {
       act: (bloc) async {
         bloc.add(const UtteranceCandidateTapped(_candidate));
         await settle();
-        verifyNever(() => tts.speak(any()));
         bloc.add(const UtteranceConfirmPressed());
         await settle();
       },
@@ -242,12 +234,11 @@ void main() {
             .having(phaseOf, 'phase', UtterancePhase.suggesting)
             .having((s) => s.selected, 'selected', _candidate),
         isA<UtteranceState>()
-            .having(phaseOf, 'phase', UtterancePhase.speaking)
-            .having((s) => s.spokenText, 'text', '물 주세요'),
-        const UtteranceState(),
+            .having(phaseOf, 'phase', UtterancePhase.idle)
+            .having((s) => s.spokenText, 'text', '물 주세요')
+            .having((s) => s.playbackId, 'playbackId', 1),
       ],
       verify: (_) {
-        verify(() => tts.speak('물 주세요')).called(1);
         verify(
           () => repository.logSelected(
             transcription: _clear,
@@ -269,7 +260,6 @@ void main() {
       ),
       act: (bloc) => bloc.add(const UtteranceConfirmPressed()),
       expect: () => <UtteranceState>[],
-      verify: (_) => verifyNever(() => tts.speak(any())),
     );
 
     blocTest<UtteranceBloc, UtteranceState>(
@@ -412,7 +402,6 @@ void main() {
           );
           return recorder;
         },
-        tts: tts,
         haptics: haptics,
       ),
       act: (bloc) => bloc.add(const UtteranceButtonPressed(SpeakMode.precise)),
@@ -445,9 +434,10 @@ void main() {
           await settle();
         },
         verify: (bloc) {
-          verify(() => tts.speak('물 좀 주세요')).called(1);
           verifyNever(() => repository.suggest(any()));
           expect(bloc.state.phase, UtterancePhase.idle);
+          expect(bloc.state.spokenText, '물 좀 주세요');
+          expect(bloc.state.playbackId, 1);
         },
       );
 
@@ -470,7 +460,7 @@ void main() {
         },
         verify: (bloc) {
           expect(bloc.state.phase, UtterancePhase.reask);
-          verifyNever(() => tts.speak(any()));
+          expect(bloc.state.spokenText, isNull);
         },
       );
     });
@@ -508,7 +498,6 @@ void main() {
         return recorder;
       },
       createTranscriber: () => transcriber,
-      tts: tts,
       haptics: haptics,
     );
 

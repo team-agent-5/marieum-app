@@ -39,6 +39,10 @@ class Recorder {
     return current.result.future;
   }
 
+  /// Asks for the microphone ahead of [start] so other prompts come after it.
+  Future<bool> requestPermission() async =>
+      await _permission.request() == MicrophoneAccess.granted;
+
   Future<void> start() {
     if (_disposed ||
         _starting != null ||

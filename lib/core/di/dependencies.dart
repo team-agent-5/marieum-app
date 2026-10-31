@@ -169,7 +169,6 @@ Future<GetIt> configureDependencies({
         repository: dependencies<UtteranceRepository>(),
         createRecorder: dependencies.call<Recorder>,
         createTranscriber: dependencies.call<LiveTranscriber>,
-        tts: dependencies<TtsPort>(),
         haptics: dependencies<VoiceHaptics>(),
       ),
     );
