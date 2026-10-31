@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
-import 'package:marieum_app/core/ui/key_text.dart';
 import 'package:marieum_app/features/history/domain/repositories/history_repository.dart';
 import 'package:marieum_app/features/history/presentation/cubit/recent_requests_cubit.dart';
 import 'package:marieum_app/features/speak/domain/entities/playback_request.dart';
@@ -48,7 +47,11 @@ class RecentRequestsSection extends StatelessWidget {
             for (final entry in state.entries)
               ListTile(
                 leading: const Icon(Icons.history_rounded),
-                title: KeyText(entry.text),
+                title: Text(
+                  entry.text,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
                 trailing: const Icon(Icons.volume_up_outlined),
                 onTap: () {
                   Navigator.of(context).pop();
