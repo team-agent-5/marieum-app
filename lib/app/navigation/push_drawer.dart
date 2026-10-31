@@ -9,6 +9,7 @@ class PushDrawer extends StatefulWidget {
     required this.drawer,
     required this.child,
     this.enabled = true,
+    this.onBack,
     super.key,
   });
 
@@ -17,6 +18,11 @@ class PushDrawer extends StatefulWidget {
 
   /// When false the drawer cannot be opened, e.g. while recording.
   final bool enabled;
+
+  /// Handles back while the drawer is closed instead of leaving the app;
+  /// returns false to open the drawer. Android's back gesture starts at the
+  /// same left edge that opens the drawer, so leaving there quit the app.
+  final bool Function()? onBack;
 
   static const duration = Duration(milliseconds: 340);
   static const curve = Cubic(0.32, 0.72, 0, 1);
@@ -109,9 +115,14 @@ class _PushDrawerState extends State<PushDrawer>
     state: this,
     isOpen: _isOpen,
     child: PopScope(
-      canPop: !_isOpen,
+      canPop: !_isOpen && widget.onBack == null,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) close();
+        if (didPop) return;
+        if (_isOpen) {
+          close();
+        } else if (widget.enabled && !(widget.onBack?.call() ?? false)) {
+          open();
+        }
       },
       child: LayoutBuilder(
         builder: (context, constraints) {

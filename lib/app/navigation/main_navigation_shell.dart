@@ -20,6 +20,11 @@ class MainNavigationShell extends StatelessWidget {
     return PushDrawer(
       enabled: !locked,
       drawer: const AppDrawer(),
+      onBack: () {
+        if (shell.currentIndex == 0) return false;
+        shell.goBranch(0);
+        return true;
+      },
       child: Scaffold(
         appBar: shell.currentIndex == 0
             ? null
