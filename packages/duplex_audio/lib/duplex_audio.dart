@@ -27,7 +27,7 @@ class DuplexAudio {
 
   /// Starts the engine; the stream carries PCM16 16 kHz mono chunks.
   /// [gainDb] is applied after Apple's processing with a soft limiter.
-  Future<Stream<Uint8List>> start({double gainDb = 0, bool agc = true}) async {
+  Future<Stream<Uint8List>> start({double gainDb = 0, bool agc = false}) async {
     final stream = _mic.receiveBroadcastStream().map(
       (chunk) => chunk as Uint8List,
     );
