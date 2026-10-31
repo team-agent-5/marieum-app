@@ -217,9 +217,7 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
   Recorder? _recorder;
   Timer? _ticker;
   StreamSubscription<double>? _levels;
-  Duration _limit = Recorder.maxDuration;
   DateTime? _recordingStartedAt;
-  DateTime? _recordingEndedAt;
   DateTime? _candidatesShownAt;
 
   Future<void> _onButton(
@@ -252,11 +250,8 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
         playbackId: state.playbackId,
       ),
     );
-    _limit = mode == SpeakMode.live
-        ? Recorder.liveMaxDuration
-        : Recorder.maxDuration;
     try {
-      await recorder.start(limit: _limit);
+      await recorder.start();
     } on Object catch (error) {
       await _disposeRecorder();
       if (generation != _generation) return;
@@ -301,7 +296,9 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
     final elapsed = _now().difference(started);
     emit(
       state.copyWith(
-        elapsed: elapsed > _limit ? _limit : elapsed,
+        elapsed: elapsed > Recorder.maxDuration
+            ? Recorder.maxDuration
+            : elapsed,
       ),
     );
   }
@@ -340,8 +337,7 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
         state.phase != UtterancePhase.recording) {
       return;
     }
-    final reachedLimit = state.elapsed >= _limit - tick;
-    _recordingEndedAt = _now();
+    final reachedLimit = state.elapsed >= Recorder.maxDuration - tick;
     await _disposeRecorder();
     _feedback(
       reachedLimit ? VoiceHaptic.recordingLimit : VoiceHaptic.recordingStopped,
@@ -381,23 +377,6 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
     );
     if (transcription.isLowConfidence) {
       _reask(emit, transcription);
-      return;
-    }
-    if (state.mode == SpeakMode.live) {
-      emit(state.copyWith(transcription: transcription));
-      final spoken = await _repository.bypass(
-        transcription,
-        latency: _since(_recordingEndedAt),
-      );
-      if (generation != _generation) return;
-      switch (spoken) {
-        case Success(:final value):
-          _speak(value, emit);
-        case FailureResult(failure: ValidationFailure()):
-          _reask(emit, transcription);
-        case FailureResult(:final failure):
-          _notify(emit, failure, UtteranceState(mode: state.mode));
-      }
       return;
     }
     final suggested = await _repository.suggest(transcription);
@@ -512,19 +491,15 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
       case _:
         return;
     }
-    if (state.mode == SpeakMode.precise) {
-      // The patient holds the main button again to speak.
-      ++_generation;
-      emit(
-        UtteranceState(
-          mode: state.mode,
-          reaskCount: state.reaskCount,
-          playbackId: state.playbackId,
-        ),
-      );
-      return;
-    }
-    await _startRecording(state.mode, emit, reaskCount: state.reaskCount);
+    // The patient holds the main button again to speak.
+    ++_generation;
+    emit(
+      UtteranceState(
+        mode: state.mode,
+        reaskCount: state.reaskCount,
+        playbackId: state.playbackId,
+      ),
+    );
   }
 
   Future<void> _onDismissed(

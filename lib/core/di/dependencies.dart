@@ -5,6 +5,7 @@ import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
 import 'package:marieum_app/app/router/app_router.dart';
 import 'package:marieum_app/app/router/auth_router_refresh.dart';
+import 'package:marieum_app/core/audio/mic_stream.dart';
 import 'package:marieum_app/core/audio/recorder.dart';
 import 'package:marieum_app/core/config/app_config.dart';
 import 'package:marieum_app/core/di/voice_dependencies.dart';
@@ -47,6 +48,7 @@ import 'package:marieum_app/features/speak/data/repositories/utterance_repositor
 import 'package:marieum_app/features/speak/domain/repositories/speak_mode_repository.dart';
 import 'package:marieum_app/features/speak/domain/repositories/utterance_repository.dart';
 import 'package:marieum_app/features/speak/presentation/bloc/utterance_bloc.dart';
+import 'package:marieum_app/features/speak/presentation/cubit/live_session_cubit.dart';
 import 'package:marieum_app/features/speak/presentation/cubit/playback_cubit.dart';
 import 'package:marieum_app/features/speak/presentation/cubit/speak_mode_cubit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -147,6 +149,7 @@ Future<GetIt> configureDependencies({
           haptics: dependencies<VoiceHaptics>(),
         ),
         createUtteranceBloc: dependencies.call<UtteranceBloc>,
+        createLiveSessionCubit: dependencies.call<LiveSessionCubit>,
       ),
       dispose: (router) => router.dispose(),
     )
@@ -163,6 +166,13 @@ Future<GetIt> configureDependencies({
           sequence: dependencies<SequenceStore>(),
           send: (body) => dependencies<UtteranceDataSource>().selection(body),
         ),
+      ),
+    )
+    ..registerFactory<LiveSessionCubit>(
+      () => LiveSessionCubit(
+        mic: dependencies<MicStream>(),
+        repository: dependencies<UtteranceRepository>(),
+        tts: dependencies<TtsPort>(),
       ),
     )
     ..registerFactory<UtteranceBloc>(

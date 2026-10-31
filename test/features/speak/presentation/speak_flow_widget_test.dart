@@ -3,13 +3,15 @@ import 'dart:async';
 import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:marieum_app/app/router/app_routes.dart';
 import 'package:marieum_app/core/error/failure.dart';
 import 'package:marieum_app/features/settings/domain/entities/app_settings.dart';
 import 'package:marieum_app/features/settings/presentation/cubit/settings_cubit.dart';
 import 'package:marieum_app/features/speak/domain/entities/speak_mode.dart';
 import 'package:marieum_app/features/speak/domain/entities/utterance.dart';
 import 'package:marieum_app/features/speak/presentation/bloc/utterance_bloc.dart';
-import 'package:marieum_app/features/speak/presentation/widgets/recording_view.dart';
+import 'package:marieum_app/features/speak/presentation/cubit/speak_mode_cubit.dart';
+import 'package:marieum_app/features/speak/presentation/widgets/live_session_view.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/pump_app.dart';
@@ -19,6 +21,9 @@ class _MockUtteranceBloc extends MockBloc<UtteranceEvent, UtteranceState>
 
 class _MockSettingsCubit extends MockCubit<SettingsState>
     implements SettingsCubit {}
+
+class _MockSpeakModeCubit extends MockCubit<SpeakModeState>
+    implements SpeakModeCubit {}
 
 const _transcription = Transcription(
   traceId: 't1',
@@ -102,7 +107,6 @@ void main() {
       );
       expect(find.text('0:03'), findsOneWidget);
       expect(find.text('손을 떼면 끝나요'), findsOneWidget);
-      expect(find.byType(RecordingView), findsNothing);
 
       await tester.tap(find.text('요청'), warnIfMissed: false);
       await tester.tap(find.text('실시간 모드'), warnIfMissed: false);
@@ -142,89 +146,32 @@ void main() {
     });
   });
 
-  group('recording page', () {
-    Future<void> show(WidgetTester tester, UtteranceState state) async {
-      when(() => bloc.state).thenReturn(state);
-      states.add(state);
+  group('live mode', () {
+    testWidgets('the main button opens the live session', (tester) async {
+      final mode = _MockSpeakModeCubit();
+      whenListen(
+        mode,
+        const Stream<SpeakModeState>.empty(),
+        initialState: const SpeakModeState(SpeakMode.live),
+      );
+      whenListen(
+        bloc,
+        const Stream<UtteranceState>.empty(),
+        initialState: const UtteranceState(),
+      );
+      final router = await tester.pumpApp(
+        createUtteranceBloc: () => bloc,
+        modeCubit: mode,
+        settle: false,
+      );
+      addTearDown(router.dispose);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.byKey(const ValueKey('speak_cta')));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 600));
-      await tester.pump(const Duration(milliseconds: 600));
-    }
-
-    testWidgets('opens when recording starts and closes when it ends', (
-      tester,
-    ) async {
-      await pump(tester, const UtteranceState());
-      await show(
-        tester,
-        const UtteranceState(
-          mode: SpeakMode.live,
-          phase: UtterancePhase.recording,
-          elapsed: Duration(seconds: 2),
-        ),
-      );
-      expect(find.byType(RecordingView), findsOneWidget);
-      expect(find.text('내 목소리로 말하기'), findsOneWidget);
-      expect(find.text('실시간 모드'), findsWidgets);
-      expect(find.text('00:02'), findsOneWidget);
-      expect(find.byKey(const ValueKey('recording_limit')), findsNothing);
-
-      await tester.tap(find.byKey(const ValueKey('recording_finish')));
-      verify(
-        () => bloc.add(const UtteranceButtonPressed(SpeakMode.live)),
-      ).called(1);
-
-      await show(
-        tester,
-        const UtteranceState(
-          mode: SpeakMode.live,
-          phase: UtterancePhase.analyzing,
-        ),
-      );
-      expect(find.byType(RecordingView), findsOneWidget);
-      expect(find.text('알아듣고 있어요'), findsOneWidget);
-
-      await show(tester, _suggesting);
-      expect(find.byType(RecordingView), findsNothing);
-    });
-
-    testWidgets('cancels from the page', (tester) async {
-      await pump(tester, const UtteranceState());
-      await show(
-        tester,
-        const UtteranceState(
-          mode: SpeakMode.live,
-          phase: UtterancePhase.recording,
-        ),
-      );
-      await tester.tap(find.byKey(const ValueKey('recording_cancel')));
-      verify(() => bloc.add(const UtteranceCancelPressed())).called(1);
-    });
-
-    testWidgets('hides text while speaking and types the server reading', (
-      tester,
-    ) async {
-      await pump(tester, const UtteranceState());
-      await show(
-        tester,
-        const UtteranceState(
-          mode: SpeakMode.live,
-          phase: UtterancePhase.recording,
-        ),
-      );
-      expect(find.text('말씀을 마치면 이곳에 해석한 문장이 나와요'), findsOneWidget);
-      expect(find.byType(TypedTranscript), findsNothing);
-
-      await show(
-        tester,
-        const UtteranceState(
-          mode: SpeakMode.live,
-          phase: UtterancePhase.analyzing,
-          transcription: _transcription,
-        ),
-      );
-      expect(find.byType(TypedTranscript), findsOneWidget);
-      expect(find.text('주세요'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 1));
+      expect(router.state.uri.path, AppRoutes.live);
+      expect(find.byType(LiveSessionView), findsOneWidget);
+      verifyNever(() => bloc.add(any()));
     });
   });
 

@@ -23,7 +23,9 @@ import 'package:marieum_app/features/quick_phrase/presentation/pages/quick_phras
 import 'package:marieum_app/features/settings/presentation/pages/settings_page.dart';
 import 'package:marieum_app/features/speak/domain/entities/playback_request.dart';
 import 'package:marieum_app/features/speak/presentation/bloc/utterance_bloc.dart';
+import 'package:marieum_app/features/speak/presentation/cubit/live_session_cubit.dart';
 import 'package:marieum_app/features/speak/presentation/cubit/playback_cubit.dart';
+import 'package:marieum_app/features/speak/presentation/pages/live_session_page.dart';
 import 'package:marieum_app/features/speak/presentation/pages/playback_page.dart';
 import 'package:marieum_app/features/speak/presentation/pages/speak_page.dart';
 
@@ -33,6 +35,7 @@ GoRouter createAppRouter({
   required AuthRouterRefresh refresh,
   required QuickPhraseBloc Function() createQuickPhraseBloc,
   required PlaybackCubit Function(PlaybackRequest) createPlaybackCubit,
+  required LiveSessionCubit Function() createLiveSessionCubit,
   required UtteranceBloc Function() createUtteranceBloc,
   required HistoryCubit Function() createHistoryCubit,
   required InsightCubit Function() createInsightCubit,
@@ -119,6 +122,12 @@ GoRouter createAppRouter({
                   ],
                 ),
             ],
+          ),
+          GoRoute(
+            path: AppRoutes.live,
+            parentNavigatorKey: authenticatedKey,
+            builder: (context, state) =>
+                LiveSessionPage(createCubit: createLiveSessionCubit),
           ),
           GoRoute(
             path: AppRoutes.playback,
