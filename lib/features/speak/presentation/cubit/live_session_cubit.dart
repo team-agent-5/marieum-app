@@ -113,14 +113,16 @@ class LiveSessionState extends Equatable {
 }
 
 /// Live mode: keeps listening and streams each utterance to the server as
-/// the patient speaks, showing what it understands so far. Final sentences
-/// are spoken in order and logged once they have been heard.
+/// the patient speaks, showing what it understands so far. Each final
+/// sentence is spoken as soon as it arrives, without pausing the
+/// microphone, and logged once it has been heard.
 class LiveSessionCubit extends Cubit<LiveSessionState> {
   LiveSessionCubit({
     required this._mic,
     required this._stream,
     required this._repository,
     required this._tts,
+    this._prefetchSpeech,
     SpeechSegmenter? segmenter,
     DateTime Function()? now,
   }) : _segmenter = segmenter ?? SpeechSegmenter(),
@@ -129,10 +131,17 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
 
   static const historyLength = 32;
 
+  /// How long after the app finishes a sentence it may still come back
+  /// through the microphone.
+  static const echoTail = Duration(milliseconds: 1500);
+
   final MicStream _mic;
   final LiveStream _stream;
   final UtteranceRepository _repository;
   final TtsPort _tts;
+
+  /// Lets the voice prepare a sentence while its final is still on the way.
+  final void Function(String)? _prefetchSpeech;
   final SpeechSegmenter _segmenter;
   final DateTime Function() _now;
 
@@ -144,6 +153,11 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   LiveUtterance? _active;
   int? _activeId;
   final _endedAt = <int, DateTime>{};
+  final _interim = <int, String>{};
+
+  /// Sentences the app spoke, until when their echo may still be heard;
+  /// null while still playing.
+  final _spoken = <({String text, DateTime? until})>[];
 
   Future<void> start() async {
     if (state.status != LiveStatus.starting) return;
@@ -176,14 +190,8 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   void _onChunk(Uint8List chunk) {
     if (_ended || isClosed) return;
     final level = pcmLevel(chunk);
-    final levels = [...state.levels, if (state.playing) 0.0 else level];
+    final levels = [...state.levels, level];
     if (levels.length > historyLength) levels.removeAt(0);
-    if (state.playing) {
-      // The app's own voice must not be heard as the patient's.
-      _drop();
-      emit(state.copyWith(levels: levels, hearing: false));
-      return;
-    }
     final signal = _segmenter.add(chunk, level: level);
     emit(
       state.copyWith(
@@ -211,42 +219,61 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     _active = utterance;
     _activeId = id;
     AppLog.speak('live segment $id started');
-    final result = Completer<(Transcription, Duration)?>();
     utterance.events.listen(
       (event) {
         if (_ended || isClosed) return;
         switch (event) {
           case LiveInterim(:final text):
+            if (_isEcho(text)) return;
+            _interim[id] = text;
             _show(id, LiveSegmentStatus.interpreting, text);
           case LiveFinal(:final transcription):
+            _interim.remove(id);
+            final endedAt = _endedAt.remove(id) ?? _now();
+            if (_isEcho(transcription.finalTranscript)) {
+              AppLog.speak("live segment $id was the app's own voice");
+              _remove(id);
+              return;
+            }
             if (transcription.isLowConfidence) {
               _show(id, LiveSegmentStatus.unclear, transcription.heard);
               return;
             }
             _show(id, LiveSegmentStatus.done, transcription.finalTranscript);
-            final endedAt = _endedAt.remove(id) ?? _now();
-            result.complete((transcription, _now().difference(endedAt)));
+            final latency = _now().difference(endedAt);
+            _queue = _queue.then(
+              (_) => _speakAndLog(id, transcription, latency),
+            );
           case LiveUnclear():
+            _interim.remove(id);
             _show(id, LiveSegmentStatus.unclear, '');
           case LiveFailed(:final failure):
+            _interim.remove(id);
             _show(id, LiveSegmentStatus.failed, failure.message);
         }
       },
-      onDone: () {
-        if (!result.isCompleted) result.complete(null);
-      },
     );
-    _queue = _queue.then((_) async {
-      final outcome = await result.future;
-      if (outcome == null) return;
-      await _speakAndLog(id, outcome.$1, outcome.$2);
-    });
+  }
+
+  static String _normalize(String text) =>
+      text.replaceAll(RegExp(r'[\s.,!?~…]'), '');
+
+  /// Whether [text] is the app's own recent sentence coming back through
+  /// the microphone rather than the patient speaking.
+  bool _isEcho(String text) {
+    final now = _now();
+    _spoken.removeWhere((s) => s.until != null && s.until!.isBefore(now));
+    final heard = _normalize(text);
+    if (heard.isEmpty) return false;
+    return _spoken.any((s) => s.text.contains(heard));
   }
 
   void _finishActive() {
     final id = _activeId;
     if (id == null) return;
     _endedAt[id] = _now();
+    final guess = _interim[id];
+    if (guess != null) _prefetchSpeech?.call(guess);
     _active?.end();
     _active = null;
     _activeId = null;
@@ -255,7 +282,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     }
   }
 
-  /// Abandons the utterance in progress, e.g. while the app is speaking.
+  /// Abandons the utterance in progress, e.g. a click too short to be speech.
   void _drop() {
     _segmenter.reset();
     final id = _activeId;
@@ -265,16 +292,20 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     _active = null;
     _activeId = null;
     _endedAt.remove(id);
-    if (state.segments.any((s) => s.id == id)) {
-      emit(
-        state.copyWith(
-          segments: [
-            for (final s in state.segments)
-              if (s.id != id) s,
-          ],
-        ),
-      );
-    }
+    _interim.remove(id);
+    _remove(id);
+  }
+
+  void _remove(int id) {
+    if (!state.segments.any((s) => s.id == id)) return;
+    emit(
+      state.copyWith(
+        segments: [
+          for (final s in state.segments)
+            if (s.id != id) s,
+        ],
+      ),
+    );
   }
 
   Future<void> _speakAndLog(
@@ -285,15 +316,23 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     if (_ended || isClosed) return;
     await _speak(id, transcription.finalTranscript);
     if (_ended || isClosed) return;
-    final logged = await _repository.bypass(transcription, latency: latency);
-    if (logged case FailureResult(:final failure)) {
-      AppLog.speak('live segment $id not logged ${failure.runtimeType}');
-    }
+    unawaited(
+      _repository.bypass(transcription, latency: latency).then((logged) {
+        if (logged case FailureResult(:final failure)) {
+          AppLog.speak('live segment $id not logged ${failure.runtimeType}');
+        }
+      }),
+    );
   }
 
   Future<void> _speak(int id, String text) async {
-    emit(state.copyWith(playingId: () => id, hearing: false));
+    final entry = (text: _normalize(text), until: null);
+    _spoken.add(entry);
+    emit(state.copyWith(playingId: () => id));
     await _tts.speak(text);
+    _spoken
+      ..remove(entry)
+      ..add((text: entry.text, until: _now().add(echoTail)));
     if (_ended || isClosed) return;
     emit(state.copyWith(playingId: () => null));
   }

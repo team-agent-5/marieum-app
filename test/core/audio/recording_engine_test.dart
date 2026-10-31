@@ -24,6 +24,23 @@ void main() {
       expect(config.encoder, AudioEncoder.pcm16bits);
       expect(config.sampleRate, 16000);
       expect(config.numChannels, 1);
+      expect(config.echoCancel, isFalse);
+      expect(config.autoGain, isFalse);
+      expect(config.noiseSuppress, isFalse);
+    });
+
+    test('cancels echo only when asked', () async {
+      final plugin = _MockPlugin();
+      when(
+        () => plugin.startStream(any()),
+      ).thenAnswer((_) async => const Stream<Uint8List>.empty());
+      await PlatformRecordingEngine(plugin: plugin).startStream(
+        echoCancel: true,
+      );
+      final config =
+          verify(() => plugin.startStream(captureAny())).captured.single
+              as RecordConfig;
+      expect(config.echoCancel, isTrue);
     });
   });
 }

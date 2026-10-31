@@ -183,6 +183,7 @@ Future<GetIt> configureDependencies({
       () => LiveSessionCubit(
         mic: dependencies<MicStream>(),
         stream: dependencies<LiveStream>(),
+        prefetchSpeech: (text) => dependencies<CloudTtsPort>().prefetch([text]),
         repository: dependencies<UtteranceRepository>(),
         tts: dependencies<TtsPort>(),
       ),

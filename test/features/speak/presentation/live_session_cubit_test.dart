@@ -165,7 +165,7 @@ void main() {
       },
     );
 
-    test('drops speech heard while the app is speaking', () async {
+    test('keeps listening and streaming while the app speaks', () async {
       final cubit = build();
       addTearDown(cubit.close);
       await cubit.start();
@@ -173,10 +173,54 @@ void main() {
       await pumpEventQueue();
       expect(cubit.state.playing, isTrue);
 
-      await signal(null);
-      verify(segmenter.reset).called(1);
-      expect(stream.opened, hasLength(1));
+      await signal(SegmentStarted(Uint8List(3200)));
+      expect(stream.opened, hasLength(2));
+      verifyNever(segmenter.reset);
       speaking.complete(const Success(null));
+    });
+
+    test('ignores its own voice coming back through the microphone', () async {
+      final cubit = build();
+      addTearDown(cubit.close);
+      await cubit.start();
+      (await speakOnce()).finish(const LiveFinal(_clear));
+      await pumpEventQueue();
+
+      final echo = await speakOnce();
+      echo.controller.add(const LiveInterim('물 좀'));
+      await pumpEventQueue();
+      echo.finish(
+        const LiveFinal(
+          Transcription(
+            traceId: 't2',
+            finalTranscript: '물 좀 주세요.',
+            asrConfidence: 0.9,
+          ),
+        ),
+      );
+      await pumpEventQueue();
+      expect(cubit.state.segments, hasLength(1));
+      verify(() => tts.speak(any())).called(1);
+      speaking.complete(const Success(null));
+    });
+
+    test('prepares the voice from the last interim when speech ends', () async {
+      final prefetched = <String>[];
+      final cubit = LiveSessionCubit(
+        mic: mic,
+        stream: stream,
+        repository: repository,
+        tts: tts,
+        prefetchSpeech: prefetched.add,
+        segmenter: segmenter,
+      );
+      addTearDown(cubit.close);
+      await cubit.start();
+      await signal(SegmentStarted(Uint8List(3200)));
+      stream.opened.single.controller.add(const LiveInterim('물 좀 주세요'));
+      await pumpEventQueue();
+      await signal(SegmentEnded(Uint8List(3200), kept: true));
+      expect(prefetched, ['물 좀 주세요']);
     });
 
     test('cancels a click too short to be speech', () async {
