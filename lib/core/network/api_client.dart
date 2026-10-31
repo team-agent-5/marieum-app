@@ -5,6 +5,7 @@ import 'package:marieum_app/core/error/failure.dart';
 import 'package:marieum_app/core/error/result.dart';
 import 'package:marieum_app/core/network/auth_interceptor.dart';
 import 'package:marieum_app/core/network/error_mapper.dart';
+import 'package:marieum_app/core/network/log_interceptor.dart';
 import 'package:marieum_app/core/network/session_expiry_signal.dart';
 import 'package:marieum_app/core/network/status_preserving_transformer.dart';
 import 'package:marieum_app/core/storage/secure_token_store.dart';
@@ -25,9 +26,10 @@ Dio createApiDio({
       ),
     )
     ..transformer = StatusPreservingTransformer()
-    ..interceptors.add(
+    ..interceptors.addAll([
       AuthInterceptor(tokens: tokens, expiry: expiry, newTraceId: newTraceId),
-    );
+      NetworkLogInterceptor(),
+    ]);
 }
 
 class ApiClient {

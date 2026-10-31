@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/services.dart';
+import 'package:marieum_app/core/log/app_log.dart';
 
 /// On-device speech recognition fed with the recorder's PCM16 16kHz mono
 /// chunks, so the microphone stays with the recorder. Only used to show text
@@ -42,14 +43,19 @@ class PlatformLiveTranscriber implements LiveTranscriber {
   Future<bool> start() async {
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'partial' && _active && call.arguments is String) {
+        AppLog.stt('partial "${call.arguments}"');
         _partials.add(call.arguments as String);
       }
     });
     try {
       _active = await _channel.invokeMethod<bool>('start', locale) ?? false;
-    } on Object {
+    } on Object catch (error) {
+      AppLog.stt('start failed ${error.runtimeType}');
       _active = false;
     }
+    AppLog.stt(
+      _active ? 'on-device recognition on' : 'recognition unavailable',
+    );
     return _active;
   }
 
