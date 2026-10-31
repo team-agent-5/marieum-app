@@ -435,6 +435,7 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
       return;
     }
     if (state.mode == SpeakMode.live) {
+      emit(state.copyWith(transcription: transcription));
       final spoken = await _repository.bypass(
         transcription,
         latency: _since(_recordingEndedAt),

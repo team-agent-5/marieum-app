@@ -70,6 +70,9 @@ class RecordingView extends StatelessWidget {
                         child: _TranscriptCard(
                           available: state.liveTextAvailable,
                           text: state.liveText,
+                          heard: analyzing
+                              ? state.transcription?.finalTranscript
+                              : null,
                         ),
                       ),
                     ),
@@ -289,9 +292,18 @@ class _BlinkingDotState extends State<_BlinkingDot>
 }
 
 class _TranscriptCard extends StatelessWidget {
-  const _TranscriptCard({required this.available, required this.text});
+  const _TranscriptCard({
+    required this.available,
+    required this.text,
+    this.heard,
+  });
+
+  /// Whether text streams in while speaking.
   final bool available;
   final String text;
+
+  /// The server's reading once the recording has been interpreted.
+  final String? heard;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -350,16 +362,16 @@ class _TranscriptCard extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 18),
-        if (available)
+        if (heard != null || available)
           Semantics(
             liveRegion: true,
-            label: text,
+            label: heard ?? text,
             excludeSemantics: true,
-            child: TypedTranscript(text: text),
+            child: TypedTranscript(text: heard ?? text),
           )
         else
           const Text(
-            '말씀을 마치면 글자로 바꿔 드려요',
+            '말씀을 마치면 이곳에 해석한 문장이 나와요',
             style: TextStyle(
               fontSize: 20,
               height: 1.5,
@@ -367,13 +379,13 @@ class _TranscriptCard extends StatelessWidget {
               color: AppTokens.ink3,
             ),
           ),
-        const SizedBox(height: 18),
-        Text(
-          available
-              ? '말씀하신 내용이 자연스럽게 이어서 표시돼요.'
-              : '이 기기에서는 말하는 동안 글자를 보여 줄 수 없어요.',
-          style: const TextStyle(fontSize: 12, color: AppTokens.ink3),
-        ),
+        if (available) ...[
+          const SizedBox(height: 18),
+          const Text(
+            '말씀하신 내용이 자연스럽게 이어서 표시돼요.',
+            style: TextStyle(fontSize: 12, color: AppTokens.ink3),
+          ),
+        ],
       ],
     ),
   );

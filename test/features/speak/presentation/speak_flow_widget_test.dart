@@ -218,7 +218,9 @@ void main() {
       verify(() => bloc.add(const UtteranceCancelPressed())).called(1);
     });
 
-    testWidgets('explains when live text is unavailable', (tester) async {
+    testWidgets('hides text while speaking and types the server reading', (
+      tester,
+    ) async {
       await pump(tester, const UtteranceState());
       await show(
         tester,
@@ -227,8 +229,19 @@ void main() {
           phase: UtterancePhase.recording,
         ),
       );
-      expect(find.text('말씀을 마치면 글자로 바꿔 드려요'), findsOneWidget);
+      expect(find.text('말씀을 마치면 이곳에 해석한 문장이 나와요'), findsOneWidget);
       expect(find.byType(TypedTranscript), findsNothing);
+
+      await show(
+        tester,
+        const UtteranceState(
+          mode: SpeakMode.live,
+          phase: UtterancePhase.analyzing,
+          transcription: _transcription,
+        ),
+      );
+      expect(find.byType(TypedTranscript), findsOneWidget);
+      expect(find.text('주세요'), findsOneWidget);
     });
   });
 
