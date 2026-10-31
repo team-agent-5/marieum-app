@@ -37,7 +37,7 @@ class ApiClient {
   final Dio _dio;
 
   static Duration timeoutFor(String path) => switch (path) {
-    '/phrase/transcribe' => const Duration(seconds: 8),
+    '/phrase/transcribe' => const Duration(seconds: 15),
     '/phrase/suggest' => const Duration(seconds: 3),
     _ => const Duration(seconds: 5),
   };

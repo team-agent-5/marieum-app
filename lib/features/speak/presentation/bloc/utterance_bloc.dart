@@ -247,6 +247,7 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
   Timer? _ticker;
   StreamSubscription<double>? _levels;
   LiveTranscriber? _transcriber;
+  Duration _limit = Recorder.maxDuration;
   StreamSubscription<Uint8List>? _chunks;
   StreamSubscription<String>? _partials;
   DateTime? _recordingStartedAt;
@@ -294,8 +295,11 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
       await transcriber.stop();
       return;
     }
+    _limit = mode == SpeakMode.live
+        ? Recorder.liveMaxDuration
+        : Recorder.maxDuration;
     try {
-      await recorder.start();
+      await recorder.start(limit: _limit);
     } on Object catch (error) {
       await _disposeRecorder();
       if (generation != _generation) return;
@@ -348,9 +352,7 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
     final elapsed = _now().difference(started);
     emit(
       state.copyWith(
-        elapsed: elapsed > Recorder.maxDuration
-            ? Recorder.maxDuration
-            : elapsed,
+        elapsed: elapsed > _limit ? _limit : elapsed,
       ),
     );
   }
@@ -389,7 +391,7 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
         state.phase != UtterancePhase.recording) {
       return;
     }
-    final reachedLimit = state.elapsed >= Recorder.maxDuration - tick;
+    final reachedLimit = state.elapsed >= _limit - tick;
     _recordingEndedAt = _now();
     await _disposeRecorder();
     _feedback(
