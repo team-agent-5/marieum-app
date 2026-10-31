@@ -57,6 +57,9 @@ class PlaybackCubit extends Cubit<PlaybackState> {
   Timer? _returnTimer;
   Timer? _suggestionTimer;
   DateTime? _suggestionShownAt;
+
+  /// A proactive playback is logged once, as the sentence that was kept.
+  bool _choiceLogged = false;
   int _revision = 0;
   bool _started = false;
   bool _closing = false;
@@ -83,6 +86,8 @@ class PlaybackCubit extends Cubit<PlaybackState> {
     if (suggestion != null) {
       _suggestionShownAt = _now();
       _suggestionTimer = Timer(suggestionDelay, declineSuggestion);
+    } else {
+      _logVerbatim();
     }
     await _playText(state.text, suggestionPending: suggestion != null);
   }
@@ -142,8 +147,37 @@ class PlaybackCubit extends Cubit<PlaybackState> {
   void declineSuggestion() {
     if (_closing || isClosed || !state.suggestionPending) return;
     _suggestionTimer?.cancel();
+    _logVerbatim();
     _update(state.status, failure: state.failure, suggestionPending: false);
     if (state.status == PlaybackStatus.completed) _scheduleReturn();
+  }
+
+  /// The heard sentence, read at once in proactive mode, was what the
+  /// patient said unless they took the suggestion instead.
+  void _logVerbatim() {
+    final suggestions = _request.suggestions;
+    final verbatim = suggestions?.verbatim;
+    if (suggestions?.mode != SuggestionMode.proactive || verbatim == null) {
+      return;
+    }
+    _logChoice(verbatim);
+  }
+
+  void _logChoice(Candidate candidate) {
+    final transcription = _request.transcription;
+    final suggestions = _request.suggestions;
+    if (_choiceLogged || transcription == null || suggestions == null) return;
+    _choiceLogged = true;
+    try {
+      repository?.logSelected(
+        transcription: transcription,
+        suggestions: suggestions,
+        candidate: candidate,
+        latency: _now().difference(_suggestionShownAt ?? _now()),
+      );
+    } on Object catch (error) {
+      AppLog.speak('proactive log unavailable ${error.runtimeType}');
+    }
   }
 
   Future<void> acceptSuggestion() async {
@@ -159,20 +193,7 @@ class PlaybackCubit extends Cubit<PlaybackState> {
     ++_revision;
     final shouldStop = state.status == PlaybackStatus.playing;
     _update(state.status, failure: state.failure, suggestionPending: false);
-    final transcription = _request.transcription;
-    final suggestions = _request.suggestions;
-    if (transcription != null && suggestions != null) {
-      try {
-        repository?.logSelected(
-          transcription: transcription,
-          suggestions: suggestions,
-          candidate: suggestion.candidate,
-          latency: _now().difference(_suggestionShownAt ?? _now()),
-        );
-      } on Object catch (error) {
-        AppLog.speak('proactive log unavailable ${error.runtimeType}');
-      }
-    }
+    _logChoice(suggestion.candidate);
     if (shouldStop) {
       await _stopTts();
       _endFeedback();
@@ -206,6 +227,8 @@ class PlaybackCubit extends Cubit<PlaybackState> {
 
   @override
   Future<void> close() async {
+    // Leaving before answering the suggestion keeps the heard sentence.
+    if (state.suggestionPending) _logVerbatim();
     _closing = true;
     ++_revision;
     _returnTimer?.cancel();
