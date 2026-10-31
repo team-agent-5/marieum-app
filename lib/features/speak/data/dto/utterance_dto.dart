@@ -98,6 +98,8 @@ abstract final class UtteranceDto {
       CandidateSource.asrVerbatim => 'asr_verbatim',
       CandidateSource.llmInference => 'llm_inference',
       CandidateSource.llmReconstruction => 'llm_reconstruction',
+      CandidateSource.catalogFallback => 'catalog_fallback',
+      CandidateSource.rankerFallback => 'ranker_fallback',
       null => fallbackSource,
     },
   };
@@ -115,6 +117,8 @@ abstract final class UtteranceDto {
       'asr_verbatim' => CandidateSource.asrVerbatim,
       'llm_inference' => CandidateSource.llmInference,
       'llm_reconstruction' => CandidateSource.llmReconstruction,
+      'catalog_fallback' => CandidateSource.catalogFallback,
+      'ranker_fallback' => CandidateSource.rankerFallback,
       _ => null,
     },
   );
