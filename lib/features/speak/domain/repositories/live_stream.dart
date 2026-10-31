@@ -25,6 +25,12 @@ final class LiveUnclear extends LiveEvent {
   const LiveUnclear();
 }
 
+/// The server's recognizer is unreachable for now; the connection stays
+/// and recovers on its own.
+final class LiveUpstreamDown extends LiveEvent {
+  const LiveUpstreamDown();
+}
+
 /// The connection is lost or refused; the conversation keeps trying unless
 /// the failure is final, such as an expired login.
 final class LiveFailed extends LiveEvent {

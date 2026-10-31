@@ -25,6 +25,7 @@ class LiveSegment extends Equatable {
     required this.at,
     this.status = LiveSegmentStatus.interpreting,
     this.text = '',
+    this.stable = 0,
   });
 
   final int id;
@@ -37,16 +38,23 @@ class LiveSegment extends Equatable {
   /// sentence or the failure reason.
   final String text;
 
-  LiveSegment copyWith({LiveSegmentStatus? status, String? text}) =>
-      LiveSegment(
-        id: id,
-        at: at,
-        status: status ?? this.status,
-        text: text ?? this.text,
-      );
+  /// How much of [text] the server has stopped changing while interpreting.
+  final int stable;
+
+  LiveSegment copyWith({
+    LiveSegmentStatus? status,
+    String? text,
+    int? stable,
+  }) => LiveSegment(
+    id: id,
+    at: at,
+    status: status ?? this.status,
+    text: text ?? this.text,
+    stable: stable ?? this.stable,
+  );
 
   @override
-  List<Object?> get props => [id, at, status, text];
+  List<Object?> get props => [id, at, status, text, stable];
 }
 
 class LiveSessionState extends Equatable {
@@ -59,6 +67,7 @@ class LiveSessionState extends Equatable {
     this.elapsed = Duration.zero,
     this.segments = const [],
     this.failure,
+    this.reconnecting = false,
   });
 
   final LiveStatus status;
@@ -78,6 +87,9 @@ class LiveSessionState extends Equatable {
   final List<LiveSegment> segments;
   final Failure? failure;
 
+  /// The server cannot reach its recognizer for the moment.
+  final bool reconnecting;
+
   bool get playing => playingId != null;
 
   LiveSessionState copyWith({
@@ -89,6 +101,7 @@ class LiveSessionState extends Equatable {
     Duration? elapsed,
     List<LiveSegment>? segments,
     Failure? failure,
+    bool? reconnecting,
   }) => LiveSessionState(
     status: status ?? this.status,
     levels: levels ?? this.levels,
@@ -98,6 +111,7 @@ class LiveSessionState extends Equatable {
     elapsed: elapsed ?? this.elapsed,
     segments: segments ?? this.segments,
     failure: failure ?? this.failure,
+    reconnecting: reconnecting ?? this.reconnecting,
   );
 
   @override
@@ -110,6 +124,7 @@ class LiveSessionState extends Equatable {
     elapsed,
     segments,
     failure,
+    reconnecting,
   ];
 }
 
@@ -182,6 +197,8 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   /// The sentence the server is reading now, shown as it changes.
   int? _currentId;
   DateTime? _lastVoiceAt;
+
+  String _lastInterim = '';
 
   /// Whether a connection problem is already on screen.
   bool _showingFailure = false;
@@ -259,14 +276,24 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     switch (event) {
       case LiveInterim(:final text):
         if (_isEcho(text)) return;
+        _recovered();
+        // The server only reads what it hears, so this is also the latest
+        // sign of the patient's voice when the input level stays low.
+        _lastVoiceAt = _now();
         final id = _currentId ??= _nextId++;
-        _clearFailure();
-        _show(id, LiveSegmentStatus.interpreting, text);
+        final shown = LivePhrasePolicy.displayText(text);
+        final stable = LivePhrasePolicy.stablePrefix(_lastInterim, shown);
+        _lastInterim = shown;
+        _show(id, LiveSegmentStatus.interpreting, shown, stable: stable);
       case LiveFinal(:final transcription):
         final id = _currentId ?? _nextId++;
         _currentId = null;
-        _clearFailure();
+        _lastInterim = '';
+        _recovered();
         _settle(id, transcription);
+      case LiveUpstreamDown():
+        AppLog.speak('live recognizer unavailable');
+        if (!state.reconnecting) emit(state.copyWith(reconnecting: true));
       case LiveUnclear():
         final id = _currentId;
         _currentId = null;
@@ -285,11 +312,15 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     }
   }
 
-  void _clearFailure() => _showingFailure = false;
+  void _recovered() {
+    _showingFailure = false;
+    if (state.reconnecting) emit(state.copyWith(reconnecting: false));
+  }
 
   void _settle(int id, Transcription transcription) {
     final finalAt = _now();
     final lastVoiceAt = _lastVoiceAt ?? finalAt;
+    _lastVoiceAt = null;
     AppLog.speak(
       'live segment $id last_voice=${lastVoiceAt.toIso8601String()} '
       'final=${finalAt.toIso8601String()} '
@@ -298,6 +329,11 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     if (_isEcho(transcription.finalTranscript)) {
       AppLog.speak("live segment $id was the app's own voice");
       _remove(id);
+      return;
+    }
+    if (LivePhrasePolicy.isRunaway(transcription.finalTranscript)) {
+      AppLog.speak('live segment $id runaway text, not spoken');
+      _show(id, LiveSegmentStatus.unclear, '');
       return;
     }
     if (transcription.isLowConfidence ||
@@ -437,7 +473,12 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   }
 
   /// Adds the segment on its first news, or updates it.
-  void _show(int id, LiveSegmentStatus status, String text) {
+  void _show(
+    int id,
+    LiveSegmentStatus status,
+    String text, {
+    int stable = 0,
+  }) {
     final visibleText = LivePhrasePolicy.displayText(text);
     if (status != LiveSegmentStatus.interpreting) {
       AppLog.speak('live segment $id ${status.name} "$text"');
@@ -449,7 +490,11 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
             ? [
                 for (final segment in state.segments)
                   segment.id == id
-                      ? segment.copyWith(status: status, text: visibleText)
+                      ? segment.copyWith(
+                          status: status,
+                          text: visibleText,
+                          stable: stable,
+                        )
                       : segment,
               ]
             : [
@@ -459,6 +504,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
                   at: _now(),
                   status: status,
                   text: visibleText,
+                  stable: stable,
                 ),
               ],
       ),

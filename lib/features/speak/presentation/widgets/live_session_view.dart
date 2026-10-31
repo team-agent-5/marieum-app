@@ -62,7 +62,11 @@ class LiveSessionView extends StatelessWidget {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        state.hearing ? '목소리가 들려요' : '말씀하시면 바로 해석해요',
+                        state.reconnecting
+                            ? '인식 서버에 연결하고 있어요'
+                            : state.hearing
+                            ? '목소리가 들려요'
+                            : '말씀하시면 바로 해석해요',
                         textAlign: TextAlign.center,
                         style: const TextStyle(
                           fontSize: 14,
@@ -463,7 +467,29 @@ class _Current extends StatelessWidget {
   Widget _content(BuildContext context) => switch (segment.status) {
     LiveSegmentStatus.interpreting when segment.text.isNotEmpty => Semantics(
       liveRegion: true,
-      child: Text(segment.text, style: _style.copyWith(color: AppTokens.ink2)),
+      label: segment.text,
+      excludeSemantics: true,
+      // The settled start is firm; the rest may still change, so it is
+      // lighter instead of flickering at full weight.
+      child: Text.rich(
+        TextSpan(
+          style: _style.copyWith(color: AppTokens.lineStrong),
+          children: [
+            TextSpan(
+              text: segment.text.substring(
+                0,
+                segment.stable.clamp(0, segment.text.length),
+              ),
+              style: const TextStyle(color: AppTokens.ink2),
+            ),
+            TextSpan(
+              text: segment.text.substring(
+                segment.stable.clamp(0, segment.text.length),
+              ),
+            ),
+          ],
+        ),
+      ),
     ),
     LiveSegmentStatus.interpreting => const Row(
       children: [
