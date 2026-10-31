@@ -8,6 +8,7 @@ import 'package:marieum_app/app/router/app_router.dart';
 import 'package:marieum_app/app/router/auth_router_refresh.dart';
 import 'package:marieum_app/core/audio/mic_stream.dart';
 import 'package:marieum_app/core/audio/recorder.dart';
+import 'package:marieum_app/core/audio/speech_pace.dart';
 import 'package:marieum_app/core/config/app_config.dart';
 import 'package:marieum_app/core/di/voice_dependencies.dart';
 import 'package:marieum_app/core/haptics/haptics.dart';
@@ -183,6 +184,7 @@ Future<GetIt> configureDependencies({
         expiry: dependencies<SessionExpirySignal>(),
       ),
     )
+    ..registerLazySingleton<SpeechPaceTracker>(() => SpeechPaceTracker(prefs))
     ..registerFactory<LiveSessionCubit>(
       () => LiveSessionCubit(
         mic: dependencies<MicStream>(),
@@ -190,6 +192,7 @@ Future<GetIt> configureDependencies({
         repository: dependencies<UtteranceRepository>(),
         tts: dependencies<PlaybackTtsPort>(),
         muteWhileSpeaking: defaultTargetPlatform == TargetPlatform.android,
+        pace: dependencies<SpeechPaceTracker>(),
       ),
     )
     ..registerFactory<UtteranceBloc>(
@@ -197,6 +200,7 @@ Future<GetIt> configureDependencies({
         repository: dependencies<UtteranceRepository>(),
         createRecorder: dependencies.call<Recorder>,
         haptics: dependencies<VoiceHaptics>(),
+        pace: dependencies<SpeechPaceTracker>(),
       ),
     );
   registerVoiceDependencies(

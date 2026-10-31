@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:marieum_app/core/audio/speech_pace.dart';
 import 'package:marieum_app/core/error/failure.dart';
 import 'package:marieum_app/core/error/result.dart';
 import 'package:marieum_app/core/storage/prefs_store.dart';
@@ -31,6 +32,11 @@ class SettingsRepositoryImpl implements SettingsRepository {
                  .where((v) => v.name == prefs.readString(PrefsKeys.cloudVoice))
                  .firstOrNull ??
              CloudVoice.female,
+         speechPace:
+             SpeechPace.values
+                 .where((v) => v.name == prefs.readString(PrefsKeys.speechPace))
+                 .firstOrNull ??
+             SpeechPace.auto,
        ) {
     applyVoice(initial);
   }
@@ -51,6 +57,10 @@ class SettingsRepositoryImpl implements SettingsRepository {
         await prefs.writeString(PrefsKeys.ttsVolume, settings.volume.name);
         await prefs.writeBool(PrefsKeys.largeText, value: settings.largeText);
         await prefs.writeString(PrefsKeys.cloudVoice, settings.cloudVoice.name);
+        await prefs.writeString(
+          PrefsKeys.speechPace,
+          settings.speechPace.name,
+        );
         final voiceId = settings.voiceId;
         if (voiceId == null) {
           await prefs.remove(PrefsKeys.ttsVoiceId);

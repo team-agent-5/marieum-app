@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:marieum_app/core/audio/speech_pace.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
 import 'package:marieum_app/core/tts/cloud_voice.dart';
 import 'package:marieum_app/core/tts/tts_port.dart';
@@ -137,6 +138,37 @@ class SettingsView extends StatelessWidget {
                   ),
                 ),
                 child: const KeyText('설정한 목소리 미리듣기'),
+              ),
+            ],
+          ),
+        ),
+      ),
+      const SizedBox(height: 18),
+      const Text('알아듣기', style: AppTokens.copy),
+      const SizedBox(height: 7),
+      FeaturePanel(
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const _SettingLabel(
+                icon: Icons.hearing_rounded,
+                text: '내 말 속도',
+              ),
+              const Text(
+                '자동은 말하는 속도를 보고 맞춰요. 말이 중간에 끊기면 천천히를 골라 주세요.',
+                style: AppTokens.copy,
+              ),
+              AdaptiveSegmentedControl<SpeechPace>(
+                key: const ValueKey('speech_pace'),
+                value: settings.speechPace,
+                children: {
+                  for (final pace in SpeechPace.values) pace: Text(pace.label),
+                },
+                onChanged: (value) => unawaited(
+                  context.read<SettingsCubit>().setSpeechPace(value),
+                ),
               ),
             ],
           ),

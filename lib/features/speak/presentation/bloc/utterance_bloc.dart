@@ -4,6 +4,8 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:marieum_app/core/audio/recorded_audio.dart';
 import 'package:marieum_app/core/audio/recorder.dart';
+import 'package:marieum_app/core/audio/speech_audio.dart';
+import 'package:marieum_app/core/audio/speech_pace.dart';
 import 'package:marieum_app/core/error/failure.dart';
 import 'package:marieum_app/core/error/result.dart';
 import 'package:marieum_app/core/haptics/haptics.dart';
@@ -182,6 +184,7 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
     required this._repository,
     required this._createRecorder,
     required this._haptics,
+    this._pace,
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now,
        super(const UtteranceState()) {
@@ -205,12 +208,16 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
   }
 
   static const maxReask = 3;
-  static const minHold = Duration(milliseconds: 400);
+  static const minHold = Duration(milliseconds: 300);
+
+  /// Shown when nothing at all was heard.
+  static const silentMessage = '목소리가 들리지 않았어요.\n버튼을 누른 채로 말씀해 주세요.';
   static const tick = Duration(milliseconds: 100);
 
   final UtteranceRepository _repository;
   final Recorder Function() _createRecorder;
   final VoiceHaptics _haptics;
+  final SpeechPaceTracker? _pace;
   final DateTime Function() _now;
 
   /// Bumped whenever the flow is abandoned so late results are ignored.
@@ -352,7 +359,13 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
         _notify(emit, failure, UtteranceState(mode: state.mode));
       case Success(value: final audio):
         emit(state.copyWith(phase: UtterancePhase.analyzing, level: 0));
-        await _analyze(audio, event.generation, emit);
+        final tidied = SpeechAudio.tidy(audio);
+        AppLog.speak(
+          'tidied trimmed=${tidied.trimmedMs}ms '
+          'gain=${tidied.gainDb.toStringAsFixed(1)}dB '
+          'sent=${tidied.audio.durationMs}ms',
+        );
+        await _analyze(tidied.audio, event.generation, emit);
     }
   }
 
@@ -376,6 +389,29 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
       'confidence=${transcription.asrConfidence} '
       'low=${transcription.isLowConfidence}',
     );
+    if (transcription.finalTranscript.trim().isEmpty) {
+      // The server refuses an empty sentence; ask again instead.
+      emit(
+        state.copyWith(
+          phase: UtterancePhase.reask,
+          transcription: transcription,
+          reaskCount: state.reaskCount + 1,
+          retryMessage: silentMessage,
+        ),
+      );
+      return;
+    }
+    if (!transcription.isLowConfidence) {
+      // The kept padding around the speech is not part of it.
+      final spokenMs = (audio.durationMs - 2 * SpeechAudio.padMs).clamp(
+        audio.durationMs ~/ 2,
+        audio.durationMs,
+      );
+      _pace?.observe(
+        transcription.finalTranscript,
+        Duration(milliseconds: spokenMs),
+      );
+    }
     final suggested = await _repository.suggest(transcription);
     if (generation != _generation) return;
     AppLog.speak(switch (suggested) {

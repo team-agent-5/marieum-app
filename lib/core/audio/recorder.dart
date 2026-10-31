@@ -15,8 +15,9 @@ class Recorder {
     Timer Function(Duration, void Function())? createTimer,
   }) : _createTimer = createTimer ?? Timer.new;
 
-  static const maxDuration = Duration(seconds: 10);
-  static const maxPcmBytes = 320000;
+  /// The server's upload limit; slow speakers ran out of time at 10 s.
+  static const maxDuration = Duration(seconds: 15);
+  static const maxPcmBytes = 480000;
 
   /// PCM16 16 kHz mono.
   static const bytesPerSecond = 32000;

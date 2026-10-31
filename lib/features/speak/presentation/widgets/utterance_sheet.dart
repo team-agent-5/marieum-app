@@ -480,38 +480,39 @@ class _Reask extends StatelessWidget {
         icon: Icons.refresh_rounded,
         kicker: '소리가 조금 흐렸어요',
         title: state.retryMessage ?? '한 번만 다시 말씀해 주세요',
-        body: '조금 천천히 말하면 더 정확하게 알아들을 수 있어요.',
+        body: '편한 속도로, 휴대폰을 입 가까이 대고 말씀해 주세요.',
       ),
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          color: AppTokens.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTokens.line),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '이렇게 들렸어요',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: AppTokens.ink3,
+      if ((state.transcription?.heard ?? '').trim().isNotEmpty)
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: AppTokens.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppTokens.line),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '이렇게 들렸어요',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: AppTokens.ink3,
+                ),
               ),
-            ),
-            const SizedBox(height: 5),
-            Text(
-              state.transcription?.heard ?? '',
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: AppTokens.ink,
+              const SizedBox(height: 5),
+              Text(
+                state.transcription?.heard ?? '',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: AppTokens.ink,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
       const SizedBox(height: 14),
       FilledButton.icon(
         key: const ValueKey('reask_retry'),
