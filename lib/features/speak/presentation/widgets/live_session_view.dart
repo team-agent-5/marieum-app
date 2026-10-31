@@ -170,49 +170,15 @@ class _Header extends StatelessWidget {
   }
 }
 
-/// The interpreted sentences, newest at the bottom.
-class _Transcript extends StatefulWidget {
+/// Subtitle layout: the newest sentence large at the bottom, earlier ones
+/// small above it so a listener can read the current one from a distance.
+class _Transcript extends StatelessWidget {
   const _Transcript({required this.state});
   final LiveSessionState state;
 
   @override
-  State<_Transcript> createState() => _TranscriptState();
-}
-
-class _TranscriptState extends State<_Transcript> {
-  final _scroll = ScrollController();
-
-  @override
-  void didUpdateWidget(_Transcript oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.state.segments != widget.state.segments) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!_scroll.hasClients) return;
-        final end = _scroll.position.maxScrollExtent;
-        if (MediaQuery.disableAnimationsOf(context)) {
-          _scroll.jumpTo(end);
-        } else {
-          unawaited(
-            _scroll.animateTo(
-              end,
-              duration: const Duration(milliseconds: 260),
-              curve: Curves.easeOutCubic,
-            ),
-          );
-        }
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    _scroll.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final segments = widget.state.segments;
+    final segments = state.segments;
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -257,39 +223,106 @@ class _TranscriptState extends State<_Transcript> {
             ],
           ),
           const SizedBox(height: 12),
-          Expanded(
-            child: segments.isEmpty
-                ? const Align(
-                    alignment: Alignment.topLeft,
-                    child: Text(
-                      '말씀하시면 해석한 문장이 여기에 바로 나와요',
-                      style: TextStyle(
-                        fontSize: 20,
-                        height: 1.5,
-                        fontWeight: FontWeight.w700,
-                        color: AppTokens.ink3,
-                      ),
-                    ),
-                  )
-                : ListView.separated(
-                    controller: _scroll,
-                    itemCount: segments.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 12),
-                    itemBuilder: (context, index) => _SegmentLine(
-                      key: ValueKey(segments[index].id),
-                      segment: segments[index],
-                      playing: widget.state.playingId == segments[index].id,
-                    ),
+          if (segments.isEmpty)
+            const Expanded(
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: Text(
+                  '말씀하시면 해석한 문장이 여기에 바로 나와요',
+                  style: TextStyle(
+                    fontSize: 20,
+                    height: 1.5,
+                    fontWeight: FontWeight.w700,
+                    color: AppTokens.ink3,
                   ),
-          ),
+                ),
+              ),
+            )
+          else ...[
+            Expanded(
+              child: _History(
+                segments: segments.sublist(0, segments.length - 1),
+                playingId: state.playingId,
+              ),
+            ),
+            const SizedBox(height: 12),
+            _Current(
+              segment: segments.last,
+              playing: state.playingId == segments.last.id,
+            ),
+          ],
         ],
       ),
     );
   }
 }
 
-class _SegmentLine extends StatelessWidget {
-  const _SegmentLine({
+class _History extends StatefulWidget {
+  const _History({required this.segments, required this.playingId});
+  final List<LiveSegment> segments;
+  final int? playingId;
+
+  @override
+  State<_History> createState() => _HistoryState();
+}
+
+class _HistoryState extends State<_History> {
+  final _scroll = ScrollController();
+
+  @override
+  void didUpdateWidget(_History oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.segments.length == widget.segments.length) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scroll.hasClients) return;
+      final end = _scroll.position.maxScrollExtent;
+      if (MediaQuery.disableAnimationsOf(context)) {
+        _scroll.jumpTo(end);
+      } else {
+        unawaited(
+          _scroll.animateTo(
+            end,
+            duration: const Duration(milliseconds: 280),
+            curve: Curves.easeOutCubic,
+          ),
+        );
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => ShaderMask(
+    // Older lines fade out toward the top.
+    shaderCallback: (bounds) => const LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [Color(0x33000000), Color(0xFF000000)],
+      stops: [0, .45],
+    ).createShader(bounds),
+    blendMode: BlendMode.dstIn,
+    child: ListView.builder(
+      controller: _scroll,
+      itemCount: widget.segments.length,
+      itemBuilder: (context, index) {
+        final segment = widget.segments[index];
+        return _HistoryLine(
+          key: ValueKey(segment.id),
+          segment: segment,
+          playing: widget.playingId == segment.id,
+        );
+      },
+    ),
+  );
+}
+
+class _HistoryLine extends StatelessWidget {
+  const _HistoryLine({
     required this.segment,
     required this.playing,
     super.key,
@@ -298,63 +331,182 @@ class _SegmentLine extends StatelessWidget {
   final LiveSegment segment;
   final bool playing;
 
-  static const _done = TextStyle(
-    fontSize: 24,
-    height: 1.4,
-    fontWeight: FontWeight.w800,
-    letterSpacing: -0.6,
+  @override
+  Widget build(BuildContext context) {
+    final done = segment.status == LiveSegmentStatus.done;
+    final time =
+        '${segment.at.hour.toString().padLeft(2, '0')}:'
+        '${segment.at.minute.toString().padLeft(2, '0')}';
+    final (text, color) = switch (segment.status) {
+      LiveSegmentStatus.done => (segment.text, AppTokens.ink2),
+      LiveSegmentStatus.interpreting => ('해석하고 있어요', AppTokens.ink3),
+      LiveSegmentStatus.unclear => ('잘 알아듣지 못했어요', AppTokens.ink3),
+      LiveSegmentStatus.failed => (segment.text, AppTokens.danger),
+    };
+    return Semantics(
+      button: done,
+      label: done ? '$time $text, 다시 듣기' : '$time $text',
+      excludeSemantics: true,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: done
+            ? () => unawaited(
+                context.read<LiveSessionCubit>().replay(segment.id),
+              )
+            : null,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 44),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 3),
+                  child: Text(
+                    time,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppTokens.ink3,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    text,
+                    style: TextStyle(
+                      fontSize: done ? 17 : 15,
+                      height: 1.35,
+                      fontWeight: done ? FontWeight.w700 : FontWeight.w500,
+                      color: color,
+                    ),
+                  ),
+                ),
+                if (done)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 6),
+                    child: Icon(
+                      playing ? Icons.volume_up_rounded : Icons.replay_rounded,
+                      size: 20,
+                      color: playing ? AppTokens.primaryStrong : AppTokens.ink3,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The newest sentence, large. A new one rises in from below.
+class _Current extends StatelessWidget {
+  const _Current({required this.segment, required this.playing});
+  final LiveSegment segment;
+  final bool playing;
+
+  static const _style = TextStyle(
+    fontSize: 30,
+    height: 1.3,
+    fontWeight: FontWeight.w900,
+    letterSpacing: -0.9,
     color: AppTokens.ink,
   );
 
   @override
-  Widget build(BuildContext context) => switch (segment.status) {
+  Widget build(BuildContext context) {
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 120),
+      child: AnimatedSwitcher(
+        duration: reduceMotion
+            ? Duration.zero
+            : const Duration(milliseconds: 280),
+        switchInCurve: Curves.easeOutCubic,
+        transitionBuilder: (child, animation) => FadeTransition(
+          opacity: animation,
+          child: SlideTransition(
+            position: Tween(
+              begin: const Offset(0, .25),
+              end: Offset.zero,
+            ).animate(animation),
+            child: child,
+          ),
+        ),
+        layoutBuilder: (current, previous) => Stack(
+          alignment: Alignment.bottomLeft,
+          children: [...previous, ?current],
+        ),
+        child: KeyedSubtree(
+          key: ValueKey(segment.id),
+          child: Align(
+            alignment: Alignment.bottomLeft,
+            child: _content(context),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _content(BuildContext context) => switch (segment.status) {
     LiveSegmentStatus.interpreting => const Row(
       children: [
         SizedBox.square(
-          dimension: 16,
-          child: CircularProgressIndicator(strokeWidth: 2),
+          dimension: 20,
+          child: CircularProgressIndicator(strokeWidth: 2.5),
         ),
-        SizedBox(width: 10),
+        SizedBox(width: 12),
         Text(
           '해석하고 있어요',
-          style: TextStyle(fontSize: 16, color: AppTokens.ink2),
+          style: TextStyle(fontSize: 18, color: AppTokens.ink2),
         ),
       ],
     ),
     LiveSegmentStatus.done => Semantics(
       liveRegion: true,
-      label: segment.text,
+      button: true,
+      label: '${segment.text}, 다시 듣기',
       excludeSemantics: true,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: TypedTranscript(
-              text: segment.text,
-              caret: false,
-              style: _done,
-            ),
-          ),
-          if (playing)
-            const Padding(
-              padding: EdgeInsets.only(left: 8, top: 6),
-              child: Icon(
-                Icons.volume_up_rounded,
-                color: AppTokens.primaryStrong,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () =>
+            unawaited(context.read<LiveSessionCubit>().replay(segment.id)),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: TypedTranscript(
+                text: segment.text,
+                caret: false,
+                style: _style,
               ),
             ),
-        ],
+            if (playing)
+              const Padding(
+                padding: EdgeInsets.only(left: 8, top: 8),
+                child: Icon(
+                  Icons.volume_up_rounded,
+                  color: AppTokens.primaryStrong,
+                ),
+              ),
+          ],
+        ),
       ),
     ),
-    LiveSegmentStatus.unclear => Text(
-      segment.text.isEmpty
-          ? '잘 알아듣지 못했어요. 다시 말씀해 주세요'
-          : '잘 알아듣지 못했어요 ("${segment.text}")',
-      style: const TextStyle(fontSize: 16, color: AppTokens.ink3),
+    LiveSegmentStatus.unclear => const Text(
+      '잘 알아듣지 못했어요. 다시 말씀해 주세요',
+      style: TextStyle(fontSize: 20, height: 1.4, color: AppTokens.ink3),
     ),
     LiveSegmentStatus.failed => Text(
       segment.text,
-      style: const TextStyle(fontSize: 16, color: AppTokens.danger),
+      style: const TextStyle(
+        fontSize: 18,
+        height: 1.4,
+        color: AppTokens.danger,
+      ),
     ),
   };
 }

@@ -21,11 +21,15 @@ enum LiveSegmentStatus { interpreting, done, unclear, failed }
 class LiveSegment extends Equatable {
   const LiveSegment({
     required this.id,
+    required this.at,
     this.status = LiveSegmentStatus.interpreting,
     this.text = '',
   });
 
   final int id;
+
+  /// When the patient finished saying it.
+  final DateTime at;
   final LiveSegmentStatus status;
 
   /// The interpreted sentence, or the failure reason.
@@ -34,12 +38,13 @@ class LiveSegment extends Equatable {
   LiveSegment copyWith({LiveSegmentStatus? status, String? text}) =>
       LiveSegment(
         id: id,
+        at: at,
         status: status ?? this.status,
         text: text ?? this.text,
       );
 
   @override
-  List<Object?> get props => [id, status, text];
+  List<Object?> get props => [id, at, status, text];
 }
 
 class LiveSessionState extends Equatable {
@@ -179,7 +184,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
       state.copyWith(
         segments: [
           ...state.segments,
-          LiveSegment(id: id),
+          LiveSegment(id: id, at: endedAt),
         ],
       ),
     );
@@ -237,6 +242,15 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
         ],
       ),
     );
+  }
+
+  /// Speaks an earlier sentence again, e.g. when the listener missed it.
+  Future<void> replay(int id) async {
+    if (_ended || isClosed || state.playing) return;
+    final segment = state.segments.where((s) => s.id == id).firstOrNull;
+    if (segment == null || segment.status != LiveSegmentStatus.done) return;
+    AppLog.speak('live replay $id');
+    await _speak(id, segment.text);
   }
 
   /// Ends the session; segments still on their way are dropped.

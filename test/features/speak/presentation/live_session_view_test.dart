@@ -5,13 +5,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
 import 'package:marieum_app/features/speak/presentation/cubit/live_session_cubit.dart';
 import 'package:marieum_app/features/speak/presentation/widgets/live_session_view.dart';
+import 'package:mocktail/mocktail.dart';
 
 class _MockLiveSessionCubit extends MockCubit<LiveSessionState>
     implements LiveSessionCubit {}
 
+final _at = DateTime(2026, 10, 31, 14, 5);
+
 void main() {
+  late _MockLiveSessionCubit cubit;
+
   Future<void> pumpView(WidgetTester tester, LiveSessionState state) async {
-    final cubit = _MockLiveSessionCubit();
+    cubit = _MockLiveSessionCubit();
+    when(() => cubit.replay(any())).thenAnswer((_) async {});
     whenListen(
       cubit,
       const Stream<LiveSessionState>.empty(),
@@ -39,23 +45,55 @@ void main() {
   ];
 
   group(LiveSessionView, () {
-    testWidgets('shows interpreted sentences and progress', (tester) async {
+    testWidgets('shows the newest sentence large and earlier ones above', (
+      tester,
+    ) async {
       await pumpView(
         tester,
-        const LiveSessionState(
+        LiveSessionState(
           status: LiveStatus.listening,
           segments: [
             LiveSegment(
               id: 0,
+              at: _at,
               status: LiveSegmentStatus.done,
               text: '물 주세요',
             ),
-            LiveSegment(id: 1),
+            LiveSegment(
+              id: 1,
+              at: _at,
+              status: LiveSegmentStatus.done,
+              text: '고마워요',
+            ),
           ],
         ),
       );
-      expect(find.text('물'), findsOneWidget);
-      expect(find.text('주세요'), findsOneWidget);
+      expect(find.text('물 주세요'), findsOneWidget);
+      expect(find.text('14:05'), findsOneWidget);
+      expect(tester.widget<Text>(find.text('물 주세요')).style!.fontSize, 17);
+      expect(tester.widget<Text>(find.text('고마워요')).style!.fontSize, 30);
+
+      await tester.tap(find.text('물 주세요'));
+      verify(() => cubit.replay(0)).called(1);
+    });
+
+    testWidgets('shows interpreted sentences and progress', (tester) async {
+      await pumpView(
+        tester,
+        LiveSessionState(
+          status: LiveStatus.listening,
+          segments: [
+            LiveSegment(
+              id: 0,
+              at: _at,
+              status: LiveSegmentStatus.done,
+              text: '물 주세요',
+            ),
+            LiveSegment(id: 1, at: _at),
+          ],
+        ),
+      );
+      expect(find.text('물 주세요'), findsOneWidget);
       expect(find.text('해석하고 있어요'), findsOneWidget);
       expect(find.text('녹음 끝내기'), findsNothing);
       expect(find.text('그만하기'), findsOneWidget);
@@ -81,13 +119,14 @@ void main() {
     testWidgets('greys out the signal while speaking aloud', (tester) async {
       await pumpView(
         tester,
-        const LiveSessionState(
+        LiveSessionState(
           status: LiveStatus.listening,
-          levels: [0.8],
+          levels: const [0.8],
           playingId: 0,
           segments: [
             LiveSegment(
               id: 0,
+              at: _at,
               status: LiveSegmentStatus.done,
               text: '고마워요',
             ),
