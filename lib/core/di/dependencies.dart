@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
 import 'package:marieum_app/app/router/app_router.dart';
@@ -188,6 +189,7 @@ Future<GetIt> configureDependencies({
         stream: dependencies<LiveStream>(),
         repository: dependencies<UtteranceRepository>(),
         tts: dependencies<PlaybackTtsPort>(),
+        muteWhileSpeaking: defaultTargetPlatform == TargetPlatform.android,
       ),
     )
     ..registerFactory<UtteranceBloc>(

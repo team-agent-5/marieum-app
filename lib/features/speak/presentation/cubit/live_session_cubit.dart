@@ -123,6 +123,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     required this._stream,
     required this._repository,
     required this._tts,
+    this.muteWhileSpeaking = false,
     SpeechSegmenter? segmenter,
     DateTime Function()? now,
   }) : _levels = segmenter ?? SpeechSegmenter(),
@@ -143,6 +144,15 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   /// it first, and low readings were mostly wrong sentences.
   static const speakConfidence = 0.6;
 
+  /// How long after the app's voice ends its echo is still kept out.
+  static const muteTail = Duration(milliseconds: 600);
+
+  /// Sends silence instead of the microphone while the app speaks. Android
+  /// cannot cancel the app's own media playback from the input, so without
+  /// this the server hears the app and the sentence is spoken again and
+  /// again.
+  final bool muteWhileSpeaking;
+
   final MicStream _mic;
   final LiveStream _stream;
   final UtteranceRepository _repository;
@@ -162,6 +172,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   int _nextId = 0;
   bool _ended = false;
   bool _speechBusy = false;
+  DateTime? _mutedUntil;
   DateTime? _warmUntil;
 
   /// The sentence the server is reading now, shown as it changes.
@@ -225,7 +236,11 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     }
     _levels.add(chunk, level: level);
     if (_levels.hearing) _lastVoiceAt = _now();
-    _conversation?.add(chunk);
+    final mutedUntil = _mutedUntil;
+    final muted =
+        muteWhileSpeaking &&
+        (_speechBusy || (mutedUntil != null && _now().isBefore(mutedUntil)));
+    _conversation?.add(muted ? Uint8List(chunk.length) : chunk);
     emit(
       state.copyWith(
         levels: levels,
@@ -411,6 +426,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     } finally {
       finishPlayback();
       _speechBusy = false;
+      _mutedUntil = _now().add(muteTail);
     }
   }
 
