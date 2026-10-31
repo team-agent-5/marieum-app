@@ -55,7 +55,15 @@ class AuthInterceptor extends Interceptor {
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
-    if (err.response?.statusCode == 401) _expiry.emit();
+    final request = err.requestOptions;
+    final authorization = request.headers['Authorization'];
+    if (err.response?.statusCode == 401 &&
+        request.extra[skipAuth] != true &&
+        authorization is String &&
+        authorization.startsWith('Bearer ') &&
+        authorization.length > 'Bearer '.length) {
+      _expiry.emit();
+    }
     handler.next(err);
   }
 }

@@ -157,6 +157,56 @@ void main() {
         expect(events, status == 401 ? 1 : 0);
       });
     }
+    for (final token in <String?>[null, '', 'existing-token']) {
+      for (final authenticated in [false, true]) {
+        test(
+          '401 with token=$token and authenticated=$authenticated '
+          'expires only a request sent with a bearer',
+          () async {
+            when(tokens.read).thenAnswer((_) async => token);
+            dio.options.headers['authorization'] = 'Bearer stale';
+            var events = 0;
+            final subscription = expiry.expired.listen((_) => events++);
+            addTearDown(subscription.cancel);
+            adapter.respond = (options, _) async {
+              expect(
+                options.headers['Authorization'],
+                authenticated && token != null && token.isNotEmpty
+                    ? 'Bearer $token'
+                    : isNull,
+              );
+              return _json('{"detail":"invalid credentials"}', 401);
+            };
+            final result =
+                await client.request(
+                      authenticated ? '/patient/me' : '/auth/login',
+                      authenticated: authenticated,
+                      decode: _decode,
+                    )
+                    as FailureResult<String>;
+            expect(result.failure, isA<UnauthorizedFailure>());
+            expect(
+              events,
+              authenticated && token != null && token.isNotEmpty ? 1 : 0,
+            );
+          },
+        );
+      }
+    }
+    test('retains HTTP status when a JSON error body is malformed', () async {
+      adapter.respond = (_, _) async => _json('{broken json', 400);
+      final result =
+          await client.request('/auth/signup', decode: _decode)
+              as FailureResult<String>;
+      expect(result.failure, isA<ValidationFailure>());
+    });
+    test('maps malformed successful JSON to protocol failure', () async {
+      adapter.respond = (_, _) async => _json('{broken json');
+      final result =
+          await client.request('/patient/me', decode: _decode)
+              as FailureResult<String>;
+      expect(result.failure, isA<ProtocolFailure>());
+    });
     test('does not send a request when token storage fails', () async {
       when(tokens.read).thenThrow(const StorageFailure());
       final result =

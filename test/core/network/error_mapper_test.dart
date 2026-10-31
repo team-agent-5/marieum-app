@@ -67,6 +67,8 @@ void main() {
       });
     });
     final statuses = <int, Type>{
+      400: ValidationFailure,
+      422: ValidationFailure,
       401: UnauthorizedFailure,
       403: ForbiddenFailure,
       409: ConflictFailure,
@@ -106,45 +108,108 @@ void main() {
         );
       });
     }
-    test(
-      'maps connection errors and malformed response payloads distinctly',
-      () {
-        expect(
+    for (final entry in statuses.entries) {
+      test('uses string detail as HTTP ${entry.key} message', () {
+        final failure = ErrorMapper.map(_http(entry.key, {'detail': 'reason'}));
+        expect(failure.runtimeType, entry.value);
+        expect(failure.message, 'reason');
+        if (failure is ValidationFailure) {
+          expect(failure.fieldErrors, isEmpty);
+        }
+      });
+      for (final body in <Object?>[
+        null,
+        '<html>error</html>',
+        <Object?>[],
+        {'error_code': 'CODE'},
+        {'error_code': 42, 'message': 'usable', 'trace_id': 42},
+      ]) {
+        test('retains HTTP ${entry.key} failure for partial body $body', () {
+          final failure = ErrorMapper.map(_http(entry.key, body));
+          expect(failure.runtimeType, entry.value);
+          if (body is Map && body['message'] == 'usable') {
+            expect(failure.message, 'usable');
+          }
+          if (body is Map && body['error_code'] == 'CODE') {
+            expect(failure.errorCode, 'CODE');
+          }
+        });
+      }
+    }
+    test('skips malformed server details and keeps usable fields', () {
+      final failure =
           ErrorMapper.map(
-            DioException(
-              requestOptions: RequestOptions(path: '/'),
-              type: DioExceptionType.connectionError,
-            ),
-          ),
-          isA<NetworkFailure>(),
-        );
-        expect(
-          ErrorMapper.map(_http(500, '<html>bad gateway</html>')),
-          isA<ProtocolFailure>(),
-        );
-        expect(
-          ErrorMapper.map(
-            _http(422, {
-              'detail': [
-                {'loc': <Object?>[], 'msg': 'invalid'},
-              ],
-            }),
-          ),
-          isA<ProtocolFailure>(),
-        );
-        expect(
-          ErrorMapper.map(const FormatException('invalid')),
-          isA<ProtocolFailure>(),
-        );
-      },
-    );
-    test('maps a missing error body to protocol failure', () {
-      expect(ErrorMapper.map(_http(500, null)), isA<ProtocolFailure>());
+                _http(400, {
+                  'error_code': 'VALIDATION_ERROR',
+                  'trace_id': 42,
+                  'details': [
+                    null,
+                    {'field': 'bad'},
+                    {'field': 'password', 'issue': 'mismatch'},
+                    42,
+                  ],
+                }),
+              )
+              as ValidationFailure;
+      expect(failure.errorCode, 'VALIDATION_ERROR');
+      expect(failure.traceId, isNull);
+      expect(failure.fieldErrors, {
+        'password': ['mismatch'],
+      });
     });
-    test('keeps unauthorized status actionable without a JSON error body', () {
+    test('skips malformed FastAPI details and keeps valid loc messages', () {
+      final failure =
+          ErrorMapper.map(
+                _http(422, {
+                  'detail': [
+                    null,
+                    {'loc': <Object?>[], 'msg': 'bad'},
+                    {
+                      'loc': ['body', 'password'],
+                      'msg': 'mismatch',
+                    },
+                    {
+                      'loc': ['body', null],
+                      'msg': 'bad',
+                    },
+                    {
+                      'loc': ['body', 'other'],
+                      'msg': 42,
+                    },
+                  ],
+                }),
+              )
+              as ValidationFailure;
+      expect(failure.fieldErrors, {
+        'password': ['mismatch'],
+      });
+    });
+    test('keeps HTTP status over a conflicting server error code', () {
+      final failure = ErrorMapper.map(
+        _http(500, {
+          'error_code': 'VALIDATION_ERROR',
+          'message': 'server failed',
+        }),
+      );
+      expect(failure, isA<ServerFailure>());
+      expect(failure.message, 'server failed');
+    });
+    test('keeps response trace fallback when body trace is invalid', () {
+      final error = _http(500, {'trace_id': 42, 'message': 'failed'});
+      error.response!.headers.set('X-Trace-Id', 'header-trace');
+      final failure = ErrorMapper.map(error);
+      expect(failure.traceId, 'header-trace');
+      expect(failure.message, 'failed');
+    });
+    test('maps connection errors to network failure', () {
       expect(
-        ErrorMapper.map(_http(401, 'unauthorized')),
-        isA<UnauthorizedFailure>(),
+        ErrorMapper.map(
+          DioException(
+            requestOptions: RequestOptions(path: '/'),
+            type: DioExceptionType.connectionError,
+          ),
+        ),
+        isA<NetworkFailure>(),
       );
     });
   });
