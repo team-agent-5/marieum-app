@@ -9,6 +9,8 @@ import 'package:marieum_app/core/tts/cloud_audio_player.dart';
 import 'package:marieum_app/core/tts/cloud_tts_cache.dart';
 import 'package:marieum_app/core/tts/cloud_tts_client.dart';
 import 'package:marieum_app/core/tts/cloud_tts_port.dart';
+import 'package:marieum_app/core/tts/duplex_tts_port.dart';
+import 'package:marieum_app/core/tts/live_tts_port.dart';
 import 'package:marieum_app/core/tts/tts_engine.dart';
 import 'package:marieum_app/core/tts/tts_port.dart';
 import 'package:marieum_app/core/tts/tts_service.dart';
@@ -41,6 +43,16 @@ void registerVoiceDependencies(
       ),
     )
     ..registerLazySingleton<TtsPort>(() => dependencies<CloudTtsPort>())
+    // Live mode listens while it speaks. On iOS both go through one engine
+    // so echo cancellation knows the app's voice.
+    ..registerLazySingleton<PlaybackTtsPort>(
+      () => platform == VoicePlatform.ios
+          ? DuplexTtsPort(
+              cloud: dependencies<CloudTtsPort>(),
+              device: dependencies<TtsService>(),
+            )
+          : LiveTtsPort(dependencies<CloudTtsPort>()),
+    )
     ..registerFactory<Recorder>(
       () => Recorder(
         engine: PlatformRecordingEngine(),
@@ -50,10 +62,12 @@ void registerVoiceDependencies(
     )
     ..registerFactory<MicStream>(
       () => MicStream(
-        engine: PlatformRecordingEngine(),
+        engine: platform == VoicePlatform.ios
+            ? DuplexRecordingEngine()
+            : PlatformRecordingEngine(),
         permission: PlatformMicrophonePermission(),
         audioSession: dependencies<VoiceAudioSession>(),
-        echoCancel: platform == VoicePlatform.android,
+        echoCancel: true,
       ),
     )
     ..registerLazySingleton<VoiceHaptics>(

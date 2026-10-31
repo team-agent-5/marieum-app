@@ -56,6 +56,21 @@ class CloudTtsPort implements TtsPort {
   Future<bool> isKoreanAvailable() async =>
       enabled || await _device.isKoreanAvailable();
 
+  /// The synthesized audio for [text] in the current voice, if cached.
+  Future<File?> cachedAudio(String text) async {
+    try {
+      return await _cache.find(_voice.id, text);
+    } on Object {
+      return null;
+    }
+  }
+
+  static double speedFor(TtsRate rate) => switch (rate) {
+    TtsRate.slow => 0.85,
+    TtsRate.normal => 1.0,
+    TtsRate.fast => 1.15,
+  };
+
   Future<Result<void>> speakCached(
     String text, {
     required void Function() onStarted,

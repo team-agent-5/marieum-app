@@ -1,3 +1,4 @@
+import 'package:duplex_audio/duplex_audio.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 
@@ -59,4 +60,26 @@ class PlatformRecordingEngine implements RecordingEngine {
 
   @override
   Future<void> dispose() => _plugin.dispose();
+}
+
+/// iOS live mode: the microphone of the engine that also plays the app's
+/// voice, so echo cancellation can remove that voice. Apple's gain control
+/// and a little make-up gain keep speech strong after processing.
+class DuplexRecordingEngine implements RecordingEngine {
+  DuplexRecordingEngine({DuplexAudio? audio})
+    : _audio = audio ?? DuplexAudio.instance;
+
+  static const gainDb = 6.0;
+
+  final DuplexAudio _audio;
+
+  @override
+  Future<Stream<List<int>>> startStream({bool echoCancel = false}) =>
+      _audio.start(gainDb: gainDb);
+
+  @override
+  Future<void> stop() => _audio.stop();
+
+  @override
+  Future<void> dispose() => _audio.stop();
 }
