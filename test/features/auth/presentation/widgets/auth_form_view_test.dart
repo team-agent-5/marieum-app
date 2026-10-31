@@ -13,6 +13,21 @@ class _MockRepository extends Mock implements AuthRepository {}
 
 void main() {
   group(AuthFormView, () {
+    testWidgets('uses an ASCII keyboard for ID and password', (tester) async {
+      final router = await tester.pumpApp(
+        initialLocation: '/signup',
+        status: const AuthUnauthenticated(),
+      );
+      addTearDown(router.dispose);
+      for (final name in ['user_id', 'password', 'password_confirm']) {
+        expect(
+          tester
+              .widget<TextField>(find.byKey(ValueKey('auth_$name')))
+              .keyboardType,
+          TextInputType.visiblePassword,
+        );
+      }
+    });
     testWidgets('shows login failure inline and retains entered credentials', (
       tester,
     ) async {
@@ -36,6 +51,10 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('auth_submit')));
       await tester.pumpAndSettle();
       expect(find.text('아이디 또는 비밀번호를 다시 확인해 주세요'), findsOneWidget);
+      TextField field(String name) =>
+          tester.widget<TextField>(find.byKey(ValueKey('auth_$name')));
+      expect(field('user_id').decoration!.error, isNotNull);
+      expect(field('password').decoration!.errorText, isNotNull);
       expect(router.state.uri.path, '/login');
       expect(find.text('user_1'), findsOneWidget);
       expect(tester.takeException(), isNull);

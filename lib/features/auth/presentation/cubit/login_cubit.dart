@@ -12,7 +12,7 @@ class LoginCubit extends Cubit<AuthFormState> {
   }) async {
     if (state.status == AuthFormStatus.submitting) return;
     final id = userId.trim();
-    final errors = AuthFormValidation.credentials(id, password);
+    final errors = AuthFormValidation.login(id, password);
     if (errors.isNotEmpty) {
       emit(AuthFormState(status: AuthFormStatus.failure, fieldErrors: errors));
       return;

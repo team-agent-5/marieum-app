@@ -17,14 +17,25 @@ class AuthFormState extends Equatable {
 }
 
 abstract final class AuthFormValidation {
+  static final _userIdPattern = RegExp(r'^[A-Za-z0-9_]{4,20}$');
+
   static Map<String, String> credentials(String userId, String password) => {
-    if (!RegExp(r'^[a-z0-9_]{4,20}$').hasMatch(userId))
-      'user_id': '영문 소문자·숫자·밑줄 4~20자로 입력해 주세요',
+    if (!_userIdPattern.hasMatch(userId))
+      'user_id': '영문·숫자·밑줄 4~20자로 입력해 주세요',
     if (password.length < 8) 'password': '비밀번호는 8자 이상 입력해 주세요',
+  };
+
+  static Map<String, String> login(String userId, String password) => {
+    if (userId.isEmpty) 'user_id': '아이디를 입력해 주세요',
+    if (password.isEmpty) 'password': '비밀번호를 입력해 주세요',
   };
   static Map<String, String> serverFields(Failure failure) => switch (failure) {
     ConflictFailure() => {'user_id': '이미 사용 중인 아이디예요'},
-    UnauthorizedFailure() => {'password': '아이디 또는 비밀번호를 다시 확인해 주세요'},
+    // Highlight both fields without revealing which one was wrong.
+    UnauthorizedFailure() => {
+      'user_id': '',
+      'password': '아이디 또는 비밀번호를 다시 확인해 주세요',
+    },
     ValidationFailure(:final fieldErrors) => {
       for (final entry in fieldErrors.entries)
         if (entry.value.isNotEmpty) entry.key: entry.value.first,

@@ -53,7 +53,7 @@ void main() {
         ),
       ),
     );
-    for (final id in ['abc', 'Aabc', 'abc-', 'abcdefghijklmnopqrstu']) {
+    for (final id in ['abc', '김환자ab', 'abc-', 'abcdefghijklmnopqrstu']) {
       blocTest<SignupCubit, AuthFormState>(
         'rejects invalid ID $id',
         build: () => SignupCubit(repository),
@@ -70,7 +70,7 @@ void main() {
         ],
       );
     }
-    for (final id in ['abc_', 'abcdefghijklmnopqrst']) {
+    for (final id in ['abc_', 'Kim_01', 'abcdefghijklmnopqrst']) {
       blocTest<SignupCubit, AuthFormState>(
         'accepts ID boundary $id and a sixteen-character nickname',
         build: () => SignupCubit(repository),

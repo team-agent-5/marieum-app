@@ -29,9 +29,9 @@ void main() {
       verify: (cubit) => expect(cubit.state, const AuthFormState()),
     );
     blocTest<LoginCubit, AuthFormState>(
-      'validates ID and password before any request',
+      'requires both fields before any request',
       build: () => LoginCubit(repository),
-      act: (cubit) => cubit.submit(userId: 'A!', password: 'short'),
+      act: (cubit) => cubit.submit(userId: '  ', password: ''),
       expect: () => [
         isA<AuthFormState>().having(
           (s) => s.fieldErrors.keys.toSet(),
