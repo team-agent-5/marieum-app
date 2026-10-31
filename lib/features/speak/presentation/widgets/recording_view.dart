@@ -174,7 +174,7 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final seconds = elapsed.inSeconds;
-    final limit = Recorder.maxDuration.inSeconds;
+    final left = Recorder.liveMaxDuration.inSeconds - seconds;
     final modeColor = live ? AppTokens.warning : AppTokens.primaryStrong;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -206,14 +206,14 @@ class _Header extends StatelessWidget {
             ),
             if (!analyzing)
               Semantics(
-                label: '녹음 $seconds초, 최대 $limit초',
+                label: '녹음 $seconds초',
                 excludeSemantics: true,
                 child: Row(
                   children: [
                     const _BlinkingDot(),
                     const SizedBox(width: 7),
                     Text(
-                      '${_clock(seconds)} / ${_clock(limit)}',
+                      _clock(seconds),
                       style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w800,
@@ -226,20 +226,16 @@ class _Header extends StatelessWidget {
               ),
           ],
         ),
-        const SizedBox(height: 12),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(2),
-          child: LinearProgressIndicator(
-            key: const ValueKey('recording_limit'),
-            minHeight: 4,
-            value: analyzing
-                ? 1
-                : (elapsed.inMilliseconds / Recorder.maxDuration.inMilliseconds)
-                      .clamp(0.0, 1.0),
-            color: AppTokens.primary,
-            backgroundColor: AppTokens.primarySoft,
+        // One upload holds about a minute, so the end is announced early.
+        if (!analyzing && left <= 10)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              '$left초 뒤 자동으로 끝나요',
+              key: const ValueKey('recording_limit'),
+              style: const TextStyle(fontSize: 13, color: AppTokens.ink2),
+            ),
           ),
-        ),
       ],
     );
   }

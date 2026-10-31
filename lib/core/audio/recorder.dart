@@ -17,6 +17,13 @@ class Recorder {
 
   static const maxDuration = Duration(seconds: 10);
   static const maxPcmBytes = 320000;
+
+  /// Live mode has no fixed limit; this cap keeps one upload under the
+  /// server's 2 MiB request size.
+  static const liveMaxDuration = Duration(seconds: 60);
+
+  /// PCM16 16 kHz mono.
+  static const bytesPerSecond = 32000;
   final RecordingEngine _engine;
   final MicrophonePermission _permission;
   final VoiceAudioSession _audioSession;
@@ -43,16 +50,17 @@ class Recorder {
   Future<bool> requestPermission() async =>
       await _permission.request() == MicrophoneAccess.granted;
 
-  Future<void> start() {
+  Future<void> start({Duration limit = maxDuration}) {
     if (_disposed ||
         _starting != null ||
         (_current != null && !_current!.result.isCompleted)) {
       throw StateError('Recorder is unavailable or already recording.');
     }
-    return _starting = _start();
+    return _starting = _start(limit);
   }
 
-  Future<void> _start() async {
+  Future<void> _start(Duration limit) async {
+    final maxBytes = limit.inMilliseconds * bytesPerSecond ~/ 1000;
     try {
       final access = await _permission.request();
       if (access != MicrophoneAccess.granted) {
@@ -70,7 +78,7 @@ class Recorder {
         ..result.future.ignore()
         ..subscription = stream.listen(
           (chunk) {
-            final room = maxPcmBytes - current.length;
+            final room = maxBytes - current.length;
             final count = chunk.length < room ? chunk.length : room;
             if (count > 0) {
               final bytes = Uint8List.fromList(chunk.sublist(0, count));
@@ -80,7 +88,7 @@ class Recorder {
               if (!_levels.isClosed) _levels.add(pcmLevel(chunk));
               if (!_chunks.isClosed) _chunks.add(bytes);
             }
-            if (current.length == maxPcmBytes) unawaited(_finish(current));
+            if (current.length == maxBytes) unawaited(_finish(current));
           },
           onError: (Object error, StackTrace stack) {
             current
@@ -94,7 +102,7 @@ class Recorder {
           },
         )
         ..timer = _createTimer(
-          maxDuration,
+          limit,
           () => unawaited(_finish(current)),
         );
     } finally {

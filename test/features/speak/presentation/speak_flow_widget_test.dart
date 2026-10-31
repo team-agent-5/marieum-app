@@ -166,7 +166,8 @@ void main() {
       expect(find.byType(RecordingView), findsOneWidget);
       expect(find.text('내 목소리로 말하기'), findsOneWidget);
       expect(find.text('실시간 모드'), findsWidgets);
-      expect(find.text('00:02 / 00:10'), findsOneWidget);
+      expect(find.text('00:02'), findsOneWidget);
+      expect(find.byKey(const ValueKey('recording_limit')), findsNothing);
 
       await tester.tap(find.byKey(const ValueKey('recording_finish')));
       verify(

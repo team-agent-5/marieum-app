@@ -78,7 +78,9 @@ void main() {
     final recorder = _MockRecorder();
     final recording = Completer<RecordedAudio>();
     when(recorder.requestPermission).thenAnswer((_) async => true);
-    when(recorder.start).thenAnswer((_) async {});
+    when(
+      () => recorder.start(limit: any(named: 'limit')),
+    ).thenAnswer((_) async {});
     when(() => recorder.levels).thenAnswer((_) => const Stream.empty());
     when(() => recorder.completed).thenAnswer((_) => recording.future);
     when(recorder.stop).thenAnswer((_) async {
@@ -398,7 +400,9 @@ void main() {
         repository: repository,
         createRecorder: () {
           final recorder = newRecorder() as _MockRecorder;
-          when(recorder.start).thenThrow(
+          when(
+            () => recorder.start(limit: any(named: 'limit')),
+          ).thenThrow(
             const PermissionFailure(permanent: true),
           );
           return recorder;
@@ -525,6 +529,28 @@ void main() {
       expect: () => const [UtteranceState(reaskCount: 1)],
       verify: (_) => expect(recorders, isEmpty),
     );
+  });
+
+  test('live mode records up to the long limit', () async {
+    when(
+      () => repository.bypass(any(), latency: any(named: 'latency')),
+    ).thenAnswer((_) async => const Success('물'));
+    final bloc = build()..add(const UtteranceButtonPressed(SpeakMode.live));
+    addTearDown(bloc.close);
+    await settle();
+    verify(
+      () => recorders.single.start(limit: Recorder.liveMaxDuration),
+    ).called(1);
+  });
+
+  test('accuracy mode keeps the 10 second limit', () async {
+    final bloc = build()..add(const UtteranceHoldStarted(SpeakMode.precise));
+    addTearDown(bloc.close);
+    await settle();
+    final limit = verify(
+      () => recorders.single.start(limit: captureAny(named: 'limit')),
+    ).captured.single;
+    expect(limit, Recorder.maxDuration);
   });
 
   group('live text', () {
