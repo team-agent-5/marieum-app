@@ -13,15 +13,64 @@ abstract final class UtteranceDto {
 
   static Suggestions suggestions(Object? json) {
     final body = _map(json);
-    final raw = body['candidates'];
-    final candidates = <Candidate>[
-      if (raw is List)
-        for (final item in raw)
-          if (item is Map) _candidate(Map<String, Object?>.from(item)),
-    ]..sort((a, b) => a.rank.compareTo(b.rank));
+    final mode = switch (body['mode']) {
+      'proactive' => SuggestionMode.proactive,
+      'single' => SuggestionMode.single,
+      'retry' => SuggestionMode.retry,
+      'candidates' || null => SuggestionMode.candidates,
+      _ => throw const FormatException('Unknown suggestion mode.'),
+    };
+    Candidate? verbatim;
+    ProactiveSuggestion? proactive;
+    final candidates = <Candidate>[];
+    switch (mode) {
+      case SuggestionMode.proactive:
+        final raw = _map(body['verbatim']);
+        verbatim = _candidate({
+          ...raw,
+          'rank': 1,
+          'score': body['asr_confidence'],
+        });
+        candidates.add(verbatim);
+        if (body['suggestion'] != null) {
+          final suggestion = _map(body['suggestion']);
+          final candidate = _candidate({
+            'rank': 2,
+            'text': suggestion['phrase'],
+            'score': suggestion['confidence'],
+            'reason_display': suggestion['reason_display'],
+            'source': 'llm_inference',
+          });
+          proactive = ProactiveSuggestion(
+            candidate: candidate,
+            modalText: _requiredText(suggestion['modal_text']),
+          );
+          candidates.add(candidate);
+        }
+      case SuggestionMode.candidates:
+        final raw = body['candidates'];
+        if (raw is! List) throw const FormatException('Missing candidates.');
+        candidates.addAll(raw.map((item) => _candidate(_map(item))));
+        candidates.sort((a, b) => a.rank.compareTo(b.rank));
+      case SuggestionMode.single:
+        candidates.add(_candidate(_map(body['candidate'])));
+      case SuggestionMode.retry:
+        _requiredText(body['message']);
+    }
     return Suggestions(
       traceId: _string(body['trace_id']),
       candidates: candidates.take(3).toList(growable: false),
+      mode: mode,
+      verbatim: verbatim,
+      proactiveSuggestion: proactive,
+      retryMessage: _nonBlank(body['message']),
+      branch: _nonBlank(body['branch']),
+      asrConfidence: body['asr_confidence'] == null
+          ? null
+          : _number(body['asr_confidence']),
+      coldStart: body['cold_start'] == true,
+      generatedAt: DateTime.tryParse(body['generated_at']?.toString() ?? ''),
+      generationLatencyMs: _number(body['generation_latency_ms']).toInt(),
     );
   }
 
@@ -46,13 +95,16 @@ abstract final class UtteranceDto {
       CandidateSource.catalog => 'catalog',
       CandidateSource.patientLog => 'patient_log',
       CandidateSource.llmGen => 'llm_gen',
+      CandidateSource.asrVerbatim => 'asr_verbatim',
+      CandidateSource.llmInference => 'llm_inference',
+      CandidateSource.llmReconstruction => 'llm_reconstruction',
       null => fallbackSource,
     },
   };
 
   static Candidate _candidate(Map<String, Object?> json) => Candidate(
     rank: (json['rank']! as num).toInt(),
-    text: json['text']! as String,
+    text: _requiredText(json['text']),
     score: _number(json['score']),
     reasonLabel: _nonBlank(json['reason_label']),
     reasonDisplay: _nonBlank(json['reason_display']),
@@ -60,6 +112,9 @@ abstract final class UtteranceDto {
       'catalog' => CandidateSource.catalog,
       'patient_log' => CandidateSource.patientLog,
       'llm_gen' => CandidateSource.llmGen,
+      'asr_verbatim' => CandidateSource.asrVerbatim,
+      'llm_inference' => CandidateSource.llmInference,
+      'llm_reconstruction' => CandidateSource.llmReconstruction,
       _ => null,
     },
   );
@@ -81,4 +136,7 @@ abstract final class UtteranceDto {
 
   static String? _nonBlank(Object? value) =>
       value is String && value.trim().isNotEmpty ? value : null;
+
+  static String _requiredText(Object? value) =>
+      _nonBlank(value) ?? (throw const FormatException('Missing text.'));
 }

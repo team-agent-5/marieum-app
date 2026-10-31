@@ -89,6 +89,8 @@ class _SpeakViewState extends State<SpeakView> {
             extra: PlaybackRequest(
               text: state.spokenText!,
               origin: PlaybackOrigin.utterance,
+              suggestions: state.suggestions,
+              transcription: state.transcription,
             ),
           ),
         ),

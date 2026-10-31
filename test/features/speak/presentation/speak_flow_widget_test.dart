@@ -191,23 +191,51 @@ void main() {
       tester,
     ) async {
       await pump(tester, const UtteranceState());
-      const only = Candidate(rank: 1, text: '오늘 좀 피곤해요', score: 0.98);
+      const only = Candidate(
+        rank: 1,
+        text: '오늘 좀 피곤해요',
+        score: 0.98,
+        reasonDisplay: '이 시간대에 자주 요청하신 문장',
+      );
       await emit(
         tester,
         const UtteranceState(
           phase: UtterancePhase.suggesting,
           transcription: _transcription,
-          suggestions: Suggestions(traceId: 's1', candidates: [only]),
+          suggestions: Suggestions(
+            traceId: 's1',
+            mode: SuggestionMode.single,
+            candidates: [only],
+          ),
           selected: only,
         ),
       );
       expect(find.text('이렇게 말씀드릴게요'), findsOneWidget);
       expect(find.text('오늘 좀 피곤해요'), findsOneWidget);
+      expect(find.text('이 시간대에 자주 요청하신 문장'), findsOneWidget);
       expect(find.textContaining('들린 내용'), findsNothing);
 
-      await tester.tap(find.byKey(const ValueKey('utterance_confirm')));
-      verify(() => bloc.add(const UtteranceConfirmPressed())).called(1);
+      await tester.tap(find.byKey(const ValueKey('candidate_1')));
+      verify(() => bloc.add(const UtteranceCandidateTapped(only))).called(1);
     });
+
+    for (final count in [1, 3]) {
+      testWidgets('shows the exact server retry message on attempt $count', (
+        tester,
+      ) async {
+        await pump(tester, const UtteranceState());
+        await emit(
+          tester,
+          UtteranceState(
+            phase: UtterancePhase.reask,
+            reaskCount: count,
+            transcription: _transcription,
+            retryMessage: '잘 못 들었어요. 다시 말씀해 주세요.',
+          ),
+        );
+        expect(find.text('잘 못 들었어요. 다시 말씀해 주세요.'), findsOneWidget);
+      });
+    }
 
     testWidgets('failure shows the failure screen with retry', (tester) async {
       await pump(tester, const UtteranceState());
@@ -235,22 +263,11 @@ void main() {
       expect(find.text('이 시간대에 자주 선택'), findsOneWidget);
       expect(find.byKey(const ValueKey('utterance_confirm')), findsNothing);
 
+      await tester.ensureVisible(find.byKey(const ValueKey('candidate_2')));
       await tester.tap(find.byKey(const ValueKey('candidate_2')));
       verify(
         () => bloc.add(UtteranceCandidateTapped(_suggestions.candidates[1])),
       ).called(1);
-
-      await emit(
-        tester,
-        UtteranceState(
-          phase: UtterancePhase.suggesting,
-          transcription: _transcription,
-          suggestions: _suggestions,
-          selected: _suggestions.candidates[1],
-        ),
-      );
-      await tester.tap(find.byKey(const ValueKey('utterance_confirm')));
-      verify(() => bloc.add(const UtteranceConfirmPressed())).called(1);
     });
 
     testWidgets('enlarges candidate text in large text mode', (tester) async {

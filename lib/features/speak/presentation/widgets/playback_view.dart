@@ -50,14 +50,14 @@ class PlaybackView extends StatelessWidget {
                                     color: AppTokens.danger,
                                   ),
                                 )
-                              else if (done) ...[
+                              else if (done && !state.suggestionPending) ...[
                                 const Text(
                                   '잠시 뒤 이전 화면으로 돌아가요',
                                   style: AppTokens.copy,
                                 ),
                                 const SizedBox(height: 20),
                                 const _ReturnProgress(),
-                              ] else
+                              ] else if (!done)
                                 const VoiceWave(),
                             ],
                           ),
