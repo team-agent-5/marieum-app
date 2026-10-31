@@ -4,6 +4,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
+import 'package:marieum_app/core/ui/key_text.dart';
 import 'package:marieum_app/features/quick_phrase/domain/entities/quick_phrase.dart';
 import 'package:marieum_app/features/quick_phrase/presentation/bloc/quick_phrase_bloc.dart';
 import 'package:marieum_app/features/quick_phrase/presentation/widgets/play_quick_phrase.dart';
@@ -229,10 +230,9 @@ class _PhraseTile extends StatelessWidget {
                     color: AppTokens.primaryStrong,
                   ),
                 ),
-                Text(
+                KeyText(
                   phrase.text,
                   maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 16,
                     height: 1.3,

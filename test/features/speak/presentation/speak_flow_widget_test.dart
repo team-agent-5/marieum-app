@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:marieum_app/features/settings/domain/entities/app_settings.dart';
+import 'package:marieum_app/features/settings/presentation/cubit/settings_cubit.dart';
 import 'package:marieum_app/features/speak/domain/entities/speak_mode.dart';
 import 'package:marieum_app/features/speak/domain/entities/utterance.dart';
 import 'package:marieum_app/features/speak/presentation/bloc/utterance_bloc.dart';
@@ -12,6 +14,9 @@ import '../../../helpers/pump_app.dart';
 
 class _MockUtteranceBloc extends MockBloc<UtteranceEvent, UtteranceState>
     implements UtteranceBloc {}
+
+class _MockSettingsCubit extends MockCubit<SettingsState>
+    implements SettingsCubit {}
 
 const _transcription = Transcription(
   traceId: 't1',
@@ -58,10 +63,18 @@ void main() {
     WidgetTester tester,
     UtteranceState initial, {
     bool settle = true,
+    bool largeText = false,
   }) async {
     whenListen(bloc, states.stream, initialState: initial);
+    final settings = _MockSettingsCubit();
+    whenListen(
+      settings,
+      const Stream<SettingsState>.empty(),
+      initialState: SettingsState(AppSettings(largeText: largeText)),
+    );
     final router = await tester.pumpApp(
       createUtteranceBloc: () => bloc,
+      settingsCubit: settings,
       settle: settle,
     );
     if (!settle) await tester.pump(const Duration(milliseconds: 300));
@@ -149,6 +162,19 @@ void main() {
       );
       await tester.tap(find.byKey(const ValueKey('utterance_confirm')));
       verify(() => bloc.add(const UtteranceConfirmPressed())).called(1);
+    });
+
+    testWidgets('enlarges candidate text in large text mode', (tester) async {
+      double candidateScale() =>
+          tester.widget<Text>(find.text('물 주세요').last).textScaler!.scale(10);
+      await pump(tester, const UtteranceState());
+      await emit(tester, _suggesting);
+      final normal = candidateScale();
+      await tester.pumpWidget(const SizedBox.shrink());
+
+      await pump(tester, const UtteranceState(), largeText: true);
+      await emit(tester, _suggesting);
+      expect(candidateScale(), closeTo(normal * 1.25, 0.001));
     });
 
     testWidgets('closing the sheet reports a dismissal, not a retry', (
