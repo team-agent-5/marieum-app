@@ -300,7 +300,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     final muted =
         muteWhileSpeaking &&
         (_sounding || (mutedUntil != null && _now().isBefore(mutedUntil)));
-    _conversation?.add(muted ? Uint8List(chunk.length) : chunk);
+    _conversation?.add(muted ? quietNoise(chunk.length) : chunk);
     emit(
       state.copyWith(
         levels: levels,
