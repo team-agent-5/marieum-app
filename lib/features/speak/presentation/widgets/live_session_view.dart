@@ -58,6 +58,7 @@ class LiveSessionView extends StatelessWidget {
                       InputSignal(
                         levels: state.levels,
                         hearing: state.hearing,
+                        threshold: state.threshold,
                         muted: state.playing,
                       ),
                       const SizedBox(height: 6),
@@ -544,12 +545,14 @@ class InputSignal extends StatelessWidget {
     required this.levels,
     required this.hearing,
     required this.muted,
+    this.threshold = SpeechSegmenter.defaultThreshold,
     super.key,
   });
 
   final List<double> levels;
   final bool hearing;
   final bool muted;
+  final double threshold;
 
   static const height = 64.0;
 
@@ -578,7 +581,7 @@ class InputSignal extends StatelessWidget {
                   borderRadius: BorderRadius.circular(3),
                   color: muted
                       ? AppTokens.line
-                      : level >= SpeechSegmenter.defaultThreshold
+                      : level >= threshold
                       ? AppTokens.primary
                       : AppTokens.lineStrong,
                 ),

@@ -27,17 +27,17 @@ void main() {
       expect(voice.first.audio.length, 3200 * 4);
       expect(voice.skip(1), everyElement(isA<SegmentContinued>()));
       expect(segmenter.hearing, isTrue);
-      final pause = feed(0.1, 7);
+      final pause = feed(0.1, 10);
       expect(pause.last, isA<SegmentEnded>());
       expect((pause.last as SegmentEnded).kept, isTrue);
-      // 300 ms lead-in + 600 ms voice + 700 ms pause.
-      expect(bytes([...voice, ...pause]), 3200 * 16);
+      // 300 ms lead-in + 600 ms voice + 1 s pause.
+      expect(bytes([...voice, ...pause]), 3200 * 19);
       expect(segmenter.hearing, isFalse);
     });
 
     test('marks a click shorter than the minimum speech as not kept', () {
       feed(0.6, 2);
-      final ended = feed(0.1, 7).last as SegmentEnded;
+      final ended = feed(0.1, 10).last as SegmentEnded;
       expect(ended.kept, isFalse);
     });
 
@@ -45,10 +45,30 @@ void main() {
       expect(feed(0.7, 80).whereType<SegmentEnded>(), hasLength(1));
     });
 
+    test('raises the voice threshold over steady noise', () {
+      feed(0.45, 50);
+      // 5 s of a 0.45 hum: the floor is the hum, voice must clear it by 10 dB.
+      expect(segmenter.threshold, closeTo(0.6, 1e-9));
+      final signals = feed(0.45, 10);
+      expect(signals.whereType<SegmentStarted>(), isEmpty);
+    });
+
+    test('hears a quiet voice in a quiet room', () {
+      feed(0.02, 20);
+      expect(segmenter.threshold, closeTo(0.22, 1e-9));
+      expect(feed(0.3).single, isA<SegmentStarted>());
+    });
+
+    test('keeps the room level across a reset', () {
+      feed(0.02, 20);
+      segmenter.reset();
+      expect(segmenter.threshold, closeTo(0.22, 1e-9));
+    });
+
     test('reset drops the segment in progress', () {
       feed(0.7, 5);
       segmenter.reset();
-      expect(feed(0.1, 7), isEmpty);
+      expect(feed(0.1, 10), isEmpty);
     });
   });
 }

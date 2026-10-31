@@ -97,6 +97,7 @@ void main() {
       () => repository.bypass(any(), latency: any(named: 'latency')),
     ).thenAnswer((_) async => const Success('물 좀 주세요'));
     when(() => segmenter.hearing).thenReturn(false);
+    when(() => segmenter.threshold).thenReturn(0.35);
     when(segmenter.reset).thenReturn(null);
   });
 

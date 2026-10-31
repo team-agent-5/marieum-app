@@ -38,6 +38,11 @@ class PlatformRecordingEngine implements RecordingEngine {
       encoder: AudioEncoder.pcm16bits,
       sampleRate: 16000,
       numChannels: 1,
+      // Tuned for speech recognition: no automatic gain or noise shaping
+      // that would blur weak consonants.
+      androidConfig: AndroidRecordConfig(
+        audioSource: AndroidAudioSource.voiceRecognition,
+      ),
     ),
   );
   @override
