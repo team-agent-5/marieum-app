@@ -137,6 +137,10 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   /// and gain settle; speech in it came out weak or clipped.
   static const warmUp = Duration(milliseconds: 300);
 
+  /// When the server's reading has stopped changing, this much quiet is
+  /// enough to end the sentence instead of the segmenter's full pause.
+  static const settledPause = Duration(milliseconds: 700);
+
   /// How long the start of each playback is listened to for the app's own
   /// loudness at the microphone.
   static const echoProbe = Duration(milliseconds: 300);
@@ -162,6 +166,13 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   final _lastVoiceAt = <int, DateTime>{};
   final _audioBytes = <int, int>{};
   final _partials = <int, List<Transcription>>{};
+
+  /// The latest interim per segment and whether it repeated the one before.
+  final _interims = <int, ({String text, bool settled})>{};
+
+  /// A connection opened ahead of time so the next sentence streams at
+  /// once instead of waiting for the handshake.
+  LiveUtterance? _spare;
   final _sessions = <LiveUtterance>{};
   final _subscriptions = <StreamSubscription<LiveEvent>>{};
   DateTime? _lastInputVoiceAt;
@@ -224,6 +235,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
         return;
       }
       _listening();
+      _prepareSpare();
     }
     _probeEcho(level);
     final signal = _segmenter.add(chunk, level: level);
@@ -256,6 +268,14 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
           _openSession(id);
         }
         _addAudio(audio);
+        if (id != null &&
+            _interims[id]?.settled == true &&
+            _segmenter.silence >= settledPause) {
+          AppLog.speak('live segment $id settled, ending early');
+          _segmenter.reset();
+          _capturing = false;
+          _finishActive();
+        }
       case SegmentEnded(:final audio, :final kept):
         _capturing = false;
         _addAudio(audio);
@@ -287,7 +307,10 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   /// a new connection carries on, so the sentence is spoken once, whole,
   /// when the app hears the patient stop.
   void _openSession(int id) {
-    final utterance = _stream.open();
+    final spare = _spare;
+    _spare = null;
+    final utterance = spare != null && !spare.isClosed ? spare : _stream.open();
+    _prepareSpare();
     _sessions.add(utterance);
     _active = utterance;
     late final StreamSubscription<LiveEvent> subscription;
@@ -296,10 +319,13 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
         if (_ended || isClosed) return;
         if (event case LiveInterim(:final text)) {
           if (_isEcho(text)) return;
+          final previous = _interims[id];
+          _interims[id] = (text: text, settled: previous?.text == text);
           _show(id, LiveSegmentStatus.interpreting, _joined(id, text));
           return;
         }
         _sessions.remove(utterance);
+        _interims.remove(id);
         if (identical(_active, utterance) && _capturing && _activeId == id) {
           if (event case LiveFinal(:final transcription)) {
             (_partials[id] ??= []).add(transcription);
@@ -319,6 +345,13 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
       },
     );
     _subscriptions.add(subscription);
+  }
+
+  void _prepareSpare() {
+    if (_ended || isClosed) return;
+    final spare = _spare;
+    if (spare != null && !spare.isClosed) return;
+    _spare = _stream.open();
   }
 
   String _joined(int id, [String? interim]) => LivePhrasePolicy.displayText(
@@ -454,6 +487,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     _lastVoiceAt.remove(id);
     _audioBytes.remove(id);
     _partials.remove(id);
+    _interims.remove(id);
     _remove(id);
   }
 
@@ -608,6 +642,9 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     _lastVoiceAt.clear();
     _audioBytes.clear();
     _partials.clear();
+    _interims.clear();
+    _spare?.cancel();
+    _spare = null;
     _active?.cancel();
     _active = null;
     await _input?.cancel();

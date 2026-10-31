@@ -77,6 +77,9 @@ class _Session implements LiveUtterance {
   Stream<LiveEvent> get events => _events.stream;
 
   @override
+  bool get isClosed => _done;
+
+  @override
   void add(Uint8List audio) {
     if (_done || _ended) return;
     _pending.add(audio);
