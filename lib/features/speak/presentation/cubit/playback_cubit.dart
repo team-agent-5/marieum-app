@@ -88,6 +88,13 @@ class PlaybackCubit extends Cubit<PlaybackState> {
     }
   }
 
+  Future<void> retry() async {
+    if (state.status != PlaybackStatus.failed || _closing || isClosed) return;
+    _started = false;
+    _endFeedbackSent = false;
+    await start();
+  }
+
   Future<void> _stopTts() => _stopOperation ??= () async {
     try {
       await _tts.stop();

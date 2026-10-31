@@ -3,7 +3,9 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 import 'package:marieum_app/app/navigation/push_drawer.dart';
+import 'package:marieum_app/app/router/app_routes.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
 import 'package:marieum_app/core/ui/adaptive/adaptive_segmented_control.dart';
 import 'package:marieum_app/features/auth/domain/entities/auth_status.dart';
@@ -11,6 +13,7 @@ import 'package:marieum_app/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:marieum_app/features/quick_phrase/domain/entities/quick_phrase.dart';
 import 'package:marieum_app/features/quick_phrase/presentation/bloc/quick_phrase_bloc.dart';
 import 'package:marieum_app/features/quick_phrase/presentation/widgets/play_quick_phrase.dart';
+import 'package:marieum_app/features/speak/domain/entities/playback_request.dart';
 import 'package:marieum_app/features/speak/domain/entities/speak_mode.dart';
 import 'package:marieum_app/features/speak/presentation/bloc/utterance_bloc.dart';
 import 'package:marieum_app/features/speak/presentation/cubit/speak_mode_cubit.dart';
@@ -38,7 +41,7 @@ class _SpeakViewState extends State<SpeakView> {
       final sheet = _sheetContext;
       if (sheet != null && sheet.mounted) Navigator.of(sheet).pop();
     }
-    final recording = state.phase == UtterancePhase.recording;
+    final recording = state.phase.locksScreen;
     final route = _recordingRoute;
     if (recording && route == null) {
       unawaited(_openRecording(context));
@@ -103,6 +106,20 @@ class _SpeakViewState extends State<SpeakView> {
       BlocListener<UtteranceBloc, UtteranceState>(
         listenWhen: (previous, current) => previous.phase != current.phase,
         listener: _onUtterance,
+      ),
+      BlocListener<UtteranceBloc, UtteranceState>(
+        listenWhen: (previous, current) =>
+            previous.playbackId != current.playbackId &&
+            current.spokenText != null,
+        listener: (context, state) => unawaited(
+          context.push<void>(
+            AppRoutes.playback,
+            extra: PlaybackRequest(
+              text: state.spokenText!,
+              origin: PlaybackOrigin.utterance,
+            ),
+          ),
+        ),
       ),
     ],
     child: BlocBuilder<SpeakModeCubit, SpeakModeState>(

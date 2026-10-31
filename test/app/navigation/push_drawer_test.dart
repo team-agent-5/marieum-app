@@ -51,6 +51,42 @@ void main() {
       expect(find.byIcon(Icons.volume_up_outlined), findsNothing);
     });
 
+    testWidgets('swipes open from the left edge and swipes closed', (
+      tester,
+    ) async {
+      await setScreen(tester, const Size(390, 844));
+      final router = await tester.pumpApp();
+      addTearDown(router.dispose);
+
+      await tester.flingFrom(const Offset(8, 400), const Offset(200, 0), 800);
+      await tester.pumpAndSettle();
+      expect(paneShift(tester), PushDrawer.drawerWidthFor(390) - 8);
+
+      await tester.flingFrom(
+        const Offset(360, 400),
+        const Offset(-200, 0),
+        800,
+      );
+      await tester.pumpAndSettle();
+      expect(paneShift(tester), 0);
+      expect(find.byType(AppDrawer), findsNothing);
+    });
+
+    testWidgets('a short slow drag springs back', (tester) async {
+      await setScreen(tester, const Size(390, 844));
+      final router = await tester.pumpApp();
+      addTearDown(router.dispose);
+
+      final gesture = await tester.startGesture(const Offset(8, 400));
+      await gesture.moveBy(const Offset(30, 0));
+      await tester.pump(const Duration(milliseconds: 500));
+      await gesture.moveBy(const Offset(30, 0));
+      await tester.pump(const Duration(milliseconds: 500));
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(paneShift(tester), 0);
+    });
+
     testWidgets('tapping the pushed pane closes without hitting its widgets', (
       tester,
     ) async {

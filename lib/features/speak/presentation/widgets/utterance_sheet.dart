@@ -11,8 +11,7 @@ import 'package:marieum_app/features/speak/domain/entities/utterance.dart';
 import 'package:marieum_app/features/speak/presentation/bloc/utterance_bloc.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-/// Bottom sheet content for candidates, re-ask, no-match, speaking and
-/// failure.
+/// Bottom sheet content for candidates, re-ask, no-match and failure.
 /// Popping with a [QuickPhrase] asks the caller to play that phrase.
 class UtteranceSheet extends StatelessWidget {
   const UtteranceSheet({super.key});
@@ -36,9 +35,6 @@ class UtteranceSheet extends StatelessWidget {
                   UtterancePhase.reask when state.reaskExhausted =>
                     const _ReaskExhausted(),
                   UtterancePhase.reask => _Reask(state: state),
-                  UtterancePhase.speaking => _Speaking(
-                    text: state.spokenText ?? '',
-                  ),
                   UtterancePhase.failed => _Failed(failure: state.notice),
                   _ => _NoMatch(state: state),
                 },
@@ -520,62 +516,6 @@ class _NoMatch extends StatelessWidget {
             context.read<UtteranceBloc>().add(const UtteranceRetryPressed()),
       ),
     ],
-  );
-}
-
-class _Speaking extends StatelessWidget {
-  const _Speaking({required this.text});
-  final String text;
-
-  @override
-  Widget build(BuildContext context) => Semantics(
-    liveRegion: true,
-    label: '말하고 있어요. $text',
-    excludeSemantics: true,
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Container(
-          constraints: const BoxConstraints(minHeight: 160),
-          alignment: Alignment.center,
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: AppTokens.surface,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: AppTokens.primary, width: 2),
-          ),
-          child: KeyText(
-            text,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 30,
-              height: 1.25,
-              letterSpacing: -1.2,
-              fontWeight: FontWeight.w900,
-              color: AppTokens.ink,
-            ),
-          ),
-        ),
-        const SizedBox(height: 14),
-        const Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.volume_up_rounded, color: AppTokens.primaryStrong),
-            SizedBox(width: 8),
-            Text(
-              '말하고 있어요',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w800,
-                color: AppTokens.primaryStrong,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-      ],
-    ),
   );
 }
 

@@ -28,49 +28,8 @@ class PrivacyPage extends StatelessWidget {
               ],
             ),
           ),
-          SizedBox(height: 18),
-          Text('내 기록', style: AppTokens.copy),
-          SizedBox(height: 7),
-          FeaturePanel(
-            child: Column(
-              children: [
-                _Unavailable(label: '요청 기록 보관 기간', icon: Icons.history_rounded),
-                _Unavailable(label: '내 데이터 내려받기', icon: Icons.download_rounded),
-              ],
-            ),
-          ),
-          SizedBox(height: 18),
-          Text('삭제', style: AppTokens.copy),
-          SizedBox(height: 7),
-          FeaturePanel(
-            child: Column(
-              children: [
-                _Unavailable(
-                  label: '요청 기록 모두 삭제',
-                  icon: Icons.delete_outline_rounded,
-                ),
-                _Unavailable(
-                  label: '계정과 데이터 삭제',
-                  icon: Icons.delete_forever_outlined,
-                ),
-              ],
-            ),
-          ),
         ],
       ),
     ),
-  );
-}
-
-class _Unavailable extends StatelessWidget {
-  const _Unavailable({required this.label, required this.icon});
-  final String label;
-  final IconData icon;
-  @override
-  Widget build(BuildContext context) => ListTile(
-    enabled: false,
-    leading: Icon(icon),
-    title: Text(label),
-    subtitle: const Text('준비 중'),
   );
 }

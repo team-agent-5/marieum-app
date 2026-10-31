@@ -9,7 +9,6 @@ import 'package:marieum_app/core/error/failure.dart';
 import 'package:marieum_app/core/error/result.dart';
 import 'package:marieum_app/core/haptics/haptics.dart';
 import 'package:marieum_app/core/speech/live_transcriber.dart';
-import 'package:marieum_app/core/tts/tts_port.dart';
 import 'package:marieum_app/features/speak/domain/entities/speak_mode.dart';
 import 'package:marieum_app/features/speak/domain/entities/utterance.dart';
 import 'package:marieum_app/features/speak/domain/repositories/utterance_repository.dart';
@@ -21,7 +20,6 @@ enum UtterancePhase {
   suggesting,
   reask,
   noMatch,
-  speaking,
   failed;
 
   /// Phases where the main screen must ignore every other control.
@@ -29,11 +27,7 @@ enum UtterancePhase {
 
   /// Phases presented in the bottom sheet.
   bool get usesSheet =>
-      this == suggesting ||
-      this == reask ||
-      this == noMatch ||
-      this == speaking ||
-      this == failed;
+      this == suggesting || this == reask || this == noMatch || this == failed;
 }
 
 sealed class UtteranceEvent extends Equatable {
@@ -110,7 +104,7 @@ class UtteranceState extends Equatable {
     this.reaskCount = 0,
     this.spokenText,
     this.notice,
-    this.noticeId = 0,
+    this.playbackId = 0,
   });
 
   final UtterancePhase phase;
@@ -127,11 +121,13 @@ class UtteranceState extends Equatable {
 
   /// Low-confidence attempts in the current speaking session.
   final int reaskCount;
+
+  /// The sentence to play; the playback screen opens when `playbackId` changes.
   final String? spokenText;
 
   /// Why the flow failed, shown by the failure screen.
   final Failure? notice;
-  final int noticeId;
+  final int playbackId;
 
   bool get reaskExhausted => reaskCount >= UtteranceBloc.maxReask;
 
@@ -159,7 +155,7 @@ class UtteranceState extends Equatable {
     selected: selected == null ? this.selected : selected(),
     reaskCount: reaskCount ?? this.reaskCount,
     spokenText: spokenText ?? this.spokenText,
-    noticeId: noticeId,
+    playbackId: playbackId,
   );
 
   @override
@@ -176,7 +172,7 @@ class UtteranceState extends Equatable {
     reaskCount,
     spokenText,
     notice,
-    noticeId,
+    playbackId,
   ];
 }
 
@@ -184,7 +180,6 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
   UtteranceBloc({
     required this._repository,
     required this._createRecorder,
-    required this._tts,
     required this._haptics,
     LiveTranscriber Function()? createTranscriber,
     DateTime Function()? now,
@@ -216,7 +211,6 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
 
   final UtteranceRepository _repository;
   final Recorder Function() _createRecorder;
-  final TtsPort _tts;
   final VoiceHaptics _haptics;
   final LiveTranscriber Function() _createTranscriber;
   final DateTime Function() _now;
@@ -260,13 +254,15 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
         phase: UtterancePhase.recording,
         mode: mode,
         reaskCount: reaskCount,
-        noticeId: state.noticeId,
+        playbackId: state.playbackId,
       ),
     );
-    // Asked first so a recognition permission prompt never cuts into speech.
+    // Microphone first, then recognition, both before speech starts.
     final transcriber = _createTranscriber();
     _transcriber = transcriber;
-    final transcribing = await transcriber.start();
+    final microphone = await recorder.requestPermission();
+    if (generation != _generation) return;
+    final transcribing = microphone && await transcriber.start();
     if (generation != _generation) {
       await transcriber.stop();
       return;
@@ -335,7 +331,7 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
     if (!state.phase.locksScreen) return;
     ++_generation;
     await _disposeRecorder();
-    emit(UtteranceState(mode: state.mode, noticeId: state.noticeId));
+    emit(UtteranceState(mode: state.mode, playbackId: state.playbackId));
   }
 
   Future<void> _onRecordingEnded(
@@ -388,7 +384,7 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
       if (generation != _generation) return;
       switch (spoken) {
         case Success(:final value):
-          await _speak(value, generation, emit);
+          _speak(value, emit);
         case FailureResult(failure: ValidationFailure()):
           _reask(emit, transcription);
         case FailureResult(:final failure):
@@ -467,26 +463,18 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
       candidate: candidate,
       latency: _since(_candidatesShownAt),
     );
-    await _speak(candidate.text, ++_generation, emit);
+    ++_generation;
+    _speak(candidate.text, emit);
   }
 
-  Future<void> _speak(
-    String text,
-    int generation,
-    Emitter<UtteranceState> emit,
-  ) async {
-    emit(state.copyWith(phase: UtterancePhase.speaking, spokenText: text));
-    _feedback(VoiceHaptic.playbackStarted);
-    final result = await _tts.speak(text);
-    if (generation != _generation) return;
-    _feedback(VoiceHaptic.playbackStopped);
-    final done = UtteranceState(mode: state.mode);
-    if (result case FailureResult(:final failure)) {
-      _notify(emit, failure, done);
-    } else {
-      emit(done.copyWith());
-    }
-  }
+  /// Hands the sentence to the shared playback screen and ends the flow.
+  void _speak(String text, Emitter<UtteranceState> emit) => emit(
+    UtteranceState(
+      mode: state.mode,
+      spokenText: text,
+      playbackId: state.playbackId + 1,
+    ),
+  );
 
   Future<void> _onRetry(
     UtteranceRetryPressed event,
@@ -518,10 +506,7 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
   ) async {
     if (!state.phase.usesSheet) return;
     ++_generation;
-    if (state.phase == UtterancePhase.speaking) {
-      await _tts.stop();
-    }
-    emit(UtteranceState(mode: state.mode, noticeId: state.noticeId));
+    emit(UtteranceState(mode: state.mode, playbackId: state.playbackId));
   }
 
   /// Shows the failure screen in the sheet; `notice` carries the reason.
@@ -534,7 +519,7 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
       phase: UtterancePhase.failed,
       mode: next.mode,
       notice: failure,
-      noticeId: state.noticeId,
+      playbackId: state.playbackId,
     ),
   );
 
@@ -578,7 +563,6 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
   Future<void> close() async {
     ++_generation;
     await _disposeRecorder();
-    if (state.phase == UtterancePhase.speaking) await _tts.stop();
     return super.close();
   }
 }
