@@ -53,6 +53,7 @@ class LiveSessionState extends Equatable {
     this.status = LiveStatus.starting,
     this.levels = const [],
     this.hearing = false,
+    this.threshold = SpeechSegmenter.defaultThreshold,
     this.playingId,
     this.elapsed = Duration.zero,
     this.segments = const [],
@@ -67,6 +68,9 @@ class LiveSessionState extends Equatable {
   /// Whether the patient's voice is coming in right now.
   final bool hearing;
 
+  /// The level that currently counts as voice, following the room noise.
+  final double threshold;
+
   /// The segment being spoken aloud; the microphone is ignored meanwhile.
   final int? playingId;
   final Duration elapsed;
@@ -79,6 +83,7 @@ class LiveSessionState extends Equatable {
     LiveStatus? status,
     List<double>? levels,
     bool? hearing,
+    double? threshold,
     int? Function()? playingId,
     Duration? elapsed,
     List<LiveSegment>? segments,
@@ -87,6 +92,7 @@ class LiveSessionState extends Equatable {
     status: status ?? this.status,
     levels: levels ?? this.levels,
     hearing: hearing ?? this.hearing,
+    threshold: threshold ?? this.threshold,
     playingId: playingId == null ? this.playingId : playingId(),
     elapsed: elapsed ?? this.elapsed,
     segments: segments ?? this.segments,
@@ -98,6 +104,7 @@ class LiveSessionState extends Equatable {
     status,
     levels,
     hearing,
+    threshold,
     playingId,
     elapsed,
     segments,
@@ -178,7 +185,13 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
       return;
     }
     final signal = _segmenter.add(chunk, level: level);
-    emit(state.copyWith(levels: levels, hearing: _segmenter.hearing));
+    emit(
+      state.copyWith(
+        levels: levels,
+        hearing: _segmenter.hearing,
+        threshold: _segmenter.threshold,
+      ),
+    );
     switch (signal) {
       case SegmentStarted(:final audio):
         _begin(audio);

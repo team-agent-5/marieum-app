@@ -26,20 +26,37 @@ final class SegmentEnded extends SegmentSignal {
 /// Splits a continuous PCM16 16 kHz mono stream into utterances: a segment
 /// starts when the input gets loud and ends after a pause, and its audio is
 /// handed on as it arrives so it can be streamed while the patient talks.
+///
+/// "Loud" is measured against the room: the voice threshold sits a margin
+/// above the recent noise floor, so quiet voices are heard in a quiet room
+/// and steady noise is not taken for speech.
 class SpeechSegmenter {
   SpeechSegmenter({
-    this.threshold = defaultThreshold,
+    this.margin = 0.2,
+    this.minThreshold = 0.2,
+    this.maxThreshold = 0.6,
+    this.noiseWindow = const Duration(seconds: 5),
     this.minSpeech = const Duration(milliseconds: 300),
-    this.endSilence = const Duration(milliseconds: 700),
+    this.endSilence = const Duration(milliseconds: 1000),
     this.maxSegment = const Duration(seconds: 8),
     this.preRoll = const Duration(milliseconds: 300),
   });
 
+  /// Used until enough of the room has been heard.
   static const defaultThreshold = 0.35;
 
-  /// [pcmLevel] at or above this counts as voice.
-  final double threshold;
+  /// Voice must be this far above the noise floor; 0.2 of [pcmLevel] is
+  /// 10 dB.
+  final double margin;
+  final double minThreshold;
+  final double maxThreshold;
+
+  /// How much recent input the noise floor is taken from.
+  final Duration noiseWindow;
   final Duration minSpeech;
+
+  /// Dysarthric speech pauses long between words; shorter values split one
+  /// sentence into several.
   final Duration endSilence;
   final Duration maxSegment;
 
@@ -50,10 +67,16 @@ class SpeechSegmenter {
 
   final _before = <Uint8List>[];
   var _beforeBytes = 0;
+  final _recent = <({double level, int ms})>[];
+  var _recentMs = 0;
+  double _threshold = defaultThreshold;
   var _inSegment = false;
   var _lengthMs = 0;
   var _speechMs = 0;
   var _silenceMs = 0;
+
+  /// [pcmLevel] at or above this counts as voice.
+  double get threshold => _threshold;
 
   /// Whether the current input is voice.
   bool get hearing => _inSegment && _silenceMs == 0;
@@ -61,8 +84,10 @@ class SpeechSegmenter {
   /// Feeds one chunk; returns what it means for the segment, or null while
   /// there is no voice.
   SegmentSignal? add(Uint8List chunk, {double? level}) {
-    final loud = (level ?? pcmLevel(chunk)) >= threshold;
+    final value = level ?? pcmLevel(chunk);
     final chunkMs = chunk.length ~/ _bytesPerMs;
+    final loud = value >= _threshold;
+    _listen(value, chunkMs);
     if (!_inSegment) {
       if (!loud) {
         _keepBefore(chunk);
@@ -104,6 +129,21 @@ class SpeechSegmenter {
     _lengthMs = 0;
     _speechMs = 0;
     _silenceMs = 0;
+  }
+
+  /// Tracks the noise floor as a low percentile of recent input: speech
+  /// always has gaps, so the quiet end of the window is the room itself.
+  void _listen(double level, int ms) {
+    _recent.add((level: level, ms: ms));
+    _recentMs += ms;
+    while (_recent.length > 1 &&
+        _recentMs - _recent.first.ms >= noiseWindow.inMilliseconds) {
+      _recentMs -= _recent.removeAt(0).ms;
+    }
+    if (_recentMs < 1000) return;
+    final levels = [for (final r in _recent) r.level]..sort();
+    final floor = levels[levels.length ~/ 10];
+    _threshold = (floor + margin).clamp(minThreshold, maxThreshold);
   }
 
   void _keepBefore(Uint8List chunk) {
