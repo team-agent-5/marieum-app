@@ -354,13 +354,11 @@ class _HistoryLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final done = segment.status == LiveSegmentStatus.done;
-    final review = segment.status == LiveSegmentStatus.review;
     final time =
         '${segment.at.hour.toString().padLeft(2, '0')}:'
         '${segment.at.minute.toString().padLeft(2, '0')}';
     final (text, color) = switch (segment.status) {
       LiveSegmentStatus.done => (segment.text, AppTokens.ink2),
-      LiveSegmentStatus.review => (segment.text, AppTokens.ink3),
       LiveSegmentStatus.interpreting => (
         segment.text.isEmpty ? '해석하고 있어요' : segment.text,
         AppTokens.ink3,
@@ -369,16 +367,12 @@ class _HistoryLine extends StatelessWidget {
       LiveSegmentStatus.failed => (segment.text, AppTokens.danger),
     };
     return Semantics(
-      button: done || review,
-      label: done
-          ? '$time $text, 다시 듣기'
-          : review
-          ? '$time $text, 맞으면 눌러서 읽기'
-          : '$time $text',
+      button: done,
+      label: done ? '$time $text, 다시 듣기' : '$time $text',
       excludeSemantics: true,
       child: InkWell(
         borderRadius: BorderRadius.circular(10),
-        onTap: done || review
+        onTap: done
             ? () =>
                   unawaited(context.read<LiveSessionCubit>().replay(segment.id))
             : null,
@@ -412,15 +406,6 @@ class _HistoryLine extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (review)
-                  const Padding(
-                    padding: EdgeInsets.only(left: 6),
-                    child: Icon(
-                      Icons.play_circle_outline_rounded,
-                      size: 20,
-                      color: AppTokens.primaryStrong,
-                    ),
-                  ),
                 if (done)
                   Padding(
                     padding: const EdgeInsets.only(left: 6),
@@ -543,44 +528,6 @@ class _Current extends StatelessWidget {
                   color: AppTokens.primaryStrong,
                 ),
               ),
-          ],
-        ),
-      ),
-    ),
-    LiveSegmentStatus.review => Semantics(
-      liveRegion: true,
-      button: true,
-      label: '${segment.text}, 확실하지 않아 읽지 않았어요. 맞으면 눌러서 읽기',
-      excludeSemantics: true,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () =>
-            unawaited(context.read<LiveSessionCubit>().replay(segment.id)),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(segment.text, style: _style.copyWith(color: AppTokens.ink3)),
-            const SizedBox(height: 8),
-            const Row(
-              children: [
-                Icon(
-                  Icons.play_circle_outline_rounded,
-                  size: 20,
-                  color: AppTokens.primaryStrong,
-                ),
-                SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    '확실하지 않아 읽지 않았어요. 맞으면 눌러 주세요',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: AppTokens.primaryStrong,
-                    ),
-                  ),
-                ),
-              ],
-            ),
           ],
         ),
       ),
