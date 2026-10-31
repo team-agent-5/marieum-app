@@ -158,12 +158,52 @@ void main() {
         isA<Success<void>>(),
       );
     });
+    for (final value in <Object?>[true, false, 'true', 'false', null]) {
+      test(
+        'restores seed profile with nullable name and onboarding=$value',
+        () async {
+          adapter.respond = (_) async => _json({
+            'id': 42,
+            'nickname': null,
+            'display_name': '데모 환자',
+            'onboarding_completed': value,
+          });
+          final result =
+              await source.profile(userId: 'demo_a', token: 'existing')
+                  as Success<PatientProfile>;
+          expect(result.value.nickname, '데모 환자');
+          expect(
+            result.value.onboardingCompleted,
+            value == true || value == 'true',
+          );
+        },
+      );
+      test('validates onboarding PATCH response value $value', () async {
+        adapter.respond = (_) async => _json({'onboarding_completed': value});
+        final result = await source.markOnboarded(
+          const PatientProfile(
+            id: '42',
+            nickname: '환자',
+            onboardingCompleted: false,
+            userId: 'demo_a',
+          ),
+        );
+        if (value == true || value == 'true') {
+          expect(result, isA<Success<void>>());
+        } else {
+          expect(
+            (result as FailureResult<void>).failure,
+            isA<ProtocolFailure>(),
+          );
+        }
+      });
+    }
     test(
       'rejects malformed successful auth response without storing a session',
       () async {
         adapter.respond = (_) async => _json({
           'access_token': 'token',
-          'patient': {'id': 42},
+          'patient': {'id': null},
         });
         final result =
             await source.login(userId: 'user_1', password: 'password')

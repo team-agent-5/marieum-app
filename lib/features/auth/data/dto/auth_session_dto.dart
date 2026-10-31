@@ -13,6 +13,19 @@ class AuthSessionDto {
   }
   final String accessToken;
   final PatientProfile profile;
+  static bool parseOnboardingCompleted(Object? value) => switch (value) {
+    final bool completed => completed,
+    'true' => true,
+    'false' || null => false,
+    _ => throw const FormatException('Invalid onboarding completion value.'),
+  };
+
+  static String? _nonBlank(Object? value) {
+    if (value is! String) return null;
+    final text = value.trim();
+    return text.isEmpty ? null : text;
+  }
+
   static PatientProfile parseProfile(Object? json, {required String userId}) {
     final body = json! as Map<String, Object?>;
     final id = body['id'];
@@ -21,8 +34,13 @@ class AuthSessionDto {
     }
     return PatientProfile(
       id: id.toString(),
-      nickname: body['nickname']! as String,
-      onboardingCompleted: body['onboarding_completed']! as bool,
+      nickname:
+          _nonBlank(body['nickname']) ??
+          _nonBlank(body['display_name']) ??
+          userId,
+      onboardingCompleted: parseOnboardingCompleted(
+        body['onboarding_completed'],
+      ),
       userId: userId,
     );
   }

@@ -54,7 +54,9 @@ class RemoteAuthDataSource implements AuthDataSource {
     data: {'onboarding_completed': true},
     decode: (json) {
       final body = json! as Map<String, Object?>;
-      if (body['onboarding_completed'] != true) {
+      if (!AuthSessionDto.parseOnboardingCompleted(
+        body['onboarding_completed'],
+      )) {
         throw const FormatException('Onboarding was not saved.');
       }
     },
