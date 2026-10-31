@@ -4,7 +4,6 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:marieum_app/app/marieum_app.dart';
-import 'package:marieum_app/core/config/app_config.dart';
 import 'package:marieum_app/core/di/dependencies.dart';
 import 'package:marieum_app/features/auth/presentation/bloc/auth_bloc.dart';
 
@@ -20,7 +19,6 @@ Future<void> bootstrap() async {
     BlocProvider.value(
       value: dependencies<AuthBloc>(),
       child: MarieumApp(
-        config: dependencies<AppConfig>(),
         router: dependencies<GoRouter>(),
       ),
     ),

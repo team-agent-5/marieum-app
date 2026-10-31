@@ -4,7 +4,6 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:marieum_app/app/marieum_app.dart';
 import 'package:marieum_app/core/ui/adaptive/adaptive_tab_bar.dart';
-import 'package:marieum_app/core/ui/safety_banner.dart';
 import 'package:marieum_app/features/speak/domain/entities/playback_request.dart';
 import 'package:marieum_app/features/speak/domain/entities/speak_mode.dart';
 
@@ -116,20 +115,6 @@ void main() {
     });
 
     group('configuration', () {
-      testWidgets(
-        'shows the configured safety notice and allows it to be hidden',
-        (tester) async {
-          final enabledRouter = await tester.pumpApp(showSafetyBanner: true);
-          addTearDown(enabledRouter.dispose);
-          expect(find.byType(SafetyBanner), findsOneWidget);
-          expect(find.text('응급 상황은 즉시 119 또는 호출벨을 사용하세요'), findsOneWidget);
-          await tester.pumpWidget(const SizedBox.shrink());
-          final disabledRouter = await tester.pumpApp();
-          addTearDown(disabledRouter.dispose);
-          expect(find.byType(SafetyBanner), findsNothing);
-        },
-      );
-
       testWidgets(
         'uses native iOS tab controls and switches to history',
         (tester) async {

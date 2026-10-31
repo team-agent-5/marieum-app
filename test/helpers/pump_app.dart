@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import 'package:marieum_app/app/marieum_app.dart';
 import 'package:marieum_app/app/router/app_router.dart';
 import 'package:marieum_app/app/router/auth_router_refresh.dart';
-import 'package:marieum_app/core/config/app_config.dart';
 import 'package:marieum_app/core/error/result.dart';
 import 'package:marieum_app/features/auth/domain/entities/auth_status.dart';
 import 'package:marieum_app/features/auth/domain/entities/patient_profile.dart';
@@ -28,7 +27,6 @@ const testProfile = PatientProfile(
 extension PumpApp on WidgetTester {
   Future<GoRouter> pumpApp({
     String initialLocation = '/speak',
-    bool showSafetyBanner = false,
     AuthBloc? authBloc,
     AuthRepository? repository,
     AuthStatus status = const AuthAuthenticated(testProfile),
@@ -55,12 +53,6 @@ extension PumpApp on WidgetTester {
       BlocProvider.value(
         value: bloc,
         child: MarieumApp(
-          config: AppConfig(
-            baseUrl: '',
-            wsUrl: '',
-            useMock: true,
-            showSafetyBanner: showSafetyBanner,
-          ),
           router: router,
         ),
       ),
