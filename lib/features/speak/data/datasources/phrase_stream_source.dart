@@ -230,6 +230,8 @@ class _Conversation implements LiveConversation {
           case 'UNAUTHORIZED':
             _source._expiry.emit();
             _emit(const LiveFailed(UnauthorizedFailure(), recovering: false));
+          case 'ML_UPSTREAM_UNAVAILABLE':
+            _emit(const LiveUpstreamDown());
           default:
             // The connection closes after this and is reopened.
             break;
