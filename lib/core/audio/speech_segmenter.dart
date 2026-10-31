@@ -85,6 +85,9 @@ class SpeechSegmenter {
   /// its own playback is not taken for the patient.
   double? playbackFloor;
 
+  /// How long the segment under way has been quiet.
+  Duration get silence => Duration(milliseconds: _inSegment ? _silenceMs : 0);
+
   /// Whether the current input is voice.
   bool get hearing => _inSegment && _silenceMs == 0;
 

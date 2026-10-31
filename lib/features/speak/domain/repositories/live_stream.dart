@@ -40,6 +40,10 @@ abstract interface class LiveUtterance {
   /// The patient paused; asks for the final transcript.
   void end();
   void cancel();
+
+  /// Whether the utterance is over and can no longer take audio, e.g. an
+  /// idle connection the server closed.
+  bool get isClosed;
 }
 
 // A named boundary keeps the transport swappable and mockable.

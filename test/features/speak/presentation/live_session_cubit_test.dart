@@ -38,6 +38,9 @@ class _FakeUtterance implements LiveUtterance {
   void end() => ended = true;
 
   @override
+  bool get isClosed => cancelled || controller.isClosed;
+
+  @override
   void cancel() {
     cancelled = true;
     unawaited(controller.close());
