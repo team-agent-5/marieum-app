@@ -188,32 +188,15 @@ void main() {
       expect(find.byType(RecordingView), findsNothing);
     });
 
-    testWidgets('types live text and cancels from the page', (tester) async {
+    testWidgets('cancels from the page', (tester) async {
       await pump(tester, const UtteranceState());
       await show(
         tester,
         const UtteranceState(
           mode: SpeakMode.live,
           phase: UtterancePhase.recording,
-          liveTextAvailable: true,
-          liveText: '물',
         ),
       );
-      expect(find.text('실시간 텍스트'), findsOneWidget);
-      expect(find.text('물'), findsOneWidget);
-
-      await show(
-        tester,
-        const UtteranceState(
-          mode: SpeakMode.live,
-          phase: UtterancePhase.recording,
-          liveTextAvailable: true,
-          liveText: '물 주세요',
-        ),
-      );
-      expect(find.text('물'), findsOneWidget);
-      expect(find.text('주세요'), findsOneWidget);
-
       await tester.tap(find.byKey(const ValueKey('recording_cancel')));
       verify(() => bloc.add(const UtteranceCancelPressed())).called(1);
     });

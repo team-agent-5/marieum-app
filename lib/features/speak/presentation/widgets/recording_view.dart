@@ -68,8 +68,6 @@ class RecordingView extends StatelessWidget {
                     Flexible(
                       child: SingleChildScrollView(
                         child: _TranscriptCard(
-                          available: state.liveTextAvailable,
-                          text: state.liveText,
                           heard: analyzing
                               ? state.transcription?.finalTranscript
                               : null,
@@ -292,15 +290,7 @@ class _BlinkingDotState extends State<_BlinkingDot>
 }
 
 class _TranscriptCard extends StatelessWidget {
-  const _TranscriptCard({
-    required this.available,
-    required this.text,
-    this.heard,
-  });
-
-  /// Whether text streams in while speaking.
-  final bool available;
-  final String text;
+  const _TranscriptCard({this.heard});
 
   /// The server's reading once the recording has been interpreted.
   final String? heard;
@@ -328,30 +318,19 @@ class _TranscriptCard extends StatelessWidget {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
+        const Row(
           children: [
-            if (available) ...[
-              Container(
-                width: 6,
-                height: 6,
-                decoration: const BoxDecoration(
-                  color: AppTokens.primary,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 6),
-            ],
             Expanded(
               child: Text(
-                available ? '실시간 텍스트' : '말씀하신 내용',
-                style: const TextStyle(
+                '말씀하신 내용',
+                style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w800,
                   color: AppTokens.primaryStrong,
                 ),
               ),
             ),
-            const Text(
+            Text(
               '음성은 저장하지 않아요',
               style: TextStyle(
                 fontSize: 11,
@@ -362,12 +341,12 @@ class _TranscriptCard extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 18),
-        if (heard != null || available)
+        if (heard case final heard?)
           Semantics(
             liveRegion: true,
-            label: heard ?? text,
+            label: heard,
             excludeSemantics: true,
-            child: TypedTranscript(text: heard ?? text),
+            child: TypedTranscript(text: heard),
           )
         else
           const Text(
@@ -379,13 +358,6 @@ class _TranscriptCard extends StatelessWidget {
               color: AppTokens.ink3,
             ),
           ),
-        if (available) ...[
-          const SizedBox(height: 18),
-          const Text(
-            '말씀하신 내용이 자연스럽게 이어서 표시돼요.',
-            style: TextStyle(fontSize: 12, color: AppTokens.ink3),
-          ),
-        ],
       ],
     ),
   );

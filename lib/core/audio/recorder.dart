@@ -32,23 +32,15 @@ class Recorder {
   _Recording? _current;
   bool _disposed = false;
   final _levels = StreamController<double>.broadcast();
-  final _chunks = StreamController<Uint8List>.broadcast(sync: true);
 
   /// Input loudness of each captured chunk, 0 (silence) to 1 (loud).
   Stream<double> get levels => _levels.stream;
-
-  /// Captured PCM16 chunks as they arrive, capped like the recording itself.
-  Stream<Uint8List> get chunks => _chunks.stream;
 
   Future<RecordedAudio> get completed {
     final current = _current;
     if (current == null) throw StateError('No recording has started.');
     return current.result.future;
   }
-
-  /// Asks for the microphone ahead of [start] so other prompts come after it.
-  Future<bool> requestPermission() async =>
-      await _permission.request() == MicrophoneAccess.granted;
 
   Future<void> start({Duration limit = maxDuration}) {
     if (_disposed ||
@@ -86,7 +78,6 @@ class Recorder {
                 ..pcm.add(bytes)
                 ..length += count;
               if (!_levels.isClosed) _levels.add(pcmLevel(chunk));
-              if (!_chunks.isClosed) _chunks.add(bytes);
             }
             if (current.length == maxBytes) unawaited(_finish(current));
           },
@@ -162,7 +153,6 @@ class Recorder {
       }
     } finally {
       await _levels.close();
-      await _chunks.close();
       await _engine.dispose();
     }
   }
