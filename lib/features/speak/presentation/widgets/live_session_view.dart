@@ -359,7 +359,7 @@ class _HistoryLine extends StatelessWidget {
         segment.text.isEmpty ? '해석하고 있어요' : segment.text,
         AppTokens.ink3,
       ),
-      LiveSegmentStatus.unclear => ('잘 알아듣지 못했어요', AppTokens.ink3),
+      LiveSegmentStatus.unclear => ('잘 들리지 않았어요', AppTokens.ink3),
       LiveSegmentStatus.failed => (segment.text, AppTokens.danger),
     };
     return Semantics(
@@ -507,7 +507,7 @@ class _Current extends StatelessWidget {
       ),
     ),
     LiveSegmentStatus.unclear => const Text(
-      '잘 알아듣지 못했어요. 다시 말씀해 주세요',
+      '목소리가 조금 멀게 들려요.\n휴대폰을 입 가까이 대고 다시 말씀해 주세요',
       style: TextStyle(fontSize: 20, height: 1.4, color: AppTokens.ink3),
     ),
     LiveSegmentStatus.failed => Text(
