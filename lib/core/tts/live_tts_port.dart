@@ -10,11 +10,8 @@ class LiveTtsPort implements PlaybackTtsPort {
   Future<bool> isKoreanAvailable() => _cloud.isKoreanAvailable();
 
   @override
-  Future<Result<void>> speak(String text) => speakWithPlayback(
-    text,
-    onStarted: () {},
-    onEnded: () {},
-  );
+  Future<Result<void>> speak(String text) =>
+      speakWithPlayback(text, onStarted: () {}, onEnded: () {});
 
   @override
   Future<Result<void>> speakWithPlayback(

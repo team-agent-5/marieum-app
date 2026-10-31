@@ -59,11 +59,7 @@ class AccountPage extends StatelessWidget {
 }
 
 class _InfoRow extends StatelessWidget {
-  const _InfoRow({
-    required this.label,
-    required this.value,
-    this.action,
-  });
+  const _InfoRow({required this.label, required this.value, this.action});
   final String label;
   final String value;
   final Widget? action;

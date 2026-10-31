@@ -87,10 +87,7 @@ class Recorder {
             unawaited(_finish(current));
           },
         )
-        ..timer = _createTimer(
-          maxDuration,
-          () => unawaited(_finish(current)),
-        );
+        ..timer = _createTimer(maxDuration, () => unawaited(_finish(current)));
     } finally {
       _starting = null;
     }

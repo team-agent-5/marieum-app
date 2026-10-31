@@ -64,10 +64,7 @@ class Candidate extends Equatable {
 }
 
 class Suggestions extends Equatable {
-  const Suggestions({
-    required this.traceId,
-    required this.candidates,
-  });
+  const Suggestions({required this.traceId, required this.candidates});
 
   final String traceId;
   final List<Candidate> candidates;

@@ -50,10 +50,7 @@ class SettingsRepositoryImpl implements SettingsRepository {
         await prefs.writeString(PrefsKeys.ttsRate, settings.rate.name);
         await prefs.writeString(PrefsKeys.ttsVolume, settings.volume.name);
         await prefs.writeBool(PrefsKeys.largeText, value: settings.largeText);
-        await prefs.writeString(
-          PrefsKeys.cloudVoice,
-          settings.cloudVoice.name,
-        );
+        await prefs.writeString(PrefsKeys.cloudVoice, settings.cloudVoice.name);
         final voiceId = settings.voiceId;
         if (voiceId == null) {
           await prefs.remove(PrefsKeys.ttsVoiceId);

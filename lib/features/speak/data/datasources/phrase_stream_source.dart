@@ -10,8 +10,9 @@ import 'package:marieum_app/features/speak/domain/entities/utterance.dart';
 import 'package:marieum_app/features/speak/domain/repositories/live_stream.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-/// Live mode transcription over `/ws/phrase/stream`: one WebSocket per
-/// utterance, binary PCM frames up, JSON transcripts down.
+/// Live mode transcription over `/ws/phrase/stream`: one WebSocket for the
+/// whole session, binary PCM frames up, JSON transcripts down. The server's
+/// recognizer (conversation mode) decides where sentences end.
 class PhraseStreamSource implements LiveStream {
   PhraseStreamSource({
     required this.endpoint,
@@ -23,7 +24,6 @@ class PhraseStreamSource implements LiveStream {
       Duration(seconds: 2),
       Duration(seconds: 4),
     ],
-    this.finalTimeout = const Duration(seconds: 3),
   }) : _connect = connect ?? WebSocketChannel.connect;
 
   /// Derives `wss://host/ws/phrase/stream` from the API address.
@@ -40,48 +40,42 @@ class PhraseStreamSource implements LiveStream {
   final SessionExpirySignal _expiry;
   final WebSocketChannel Function(Uri) _connect;
 
-  /// Waits between reconnects when the connection or the server's speech
-  /// recognizer is unavailable.
+  /// Waits between attempts while the server cannot be reached; the last
+  /// one repeats.
   final List<Duration> retryDelays;
 
-  /// How long the final transcript may take after the patient pauses.
-  final Duration finalTimeout;
-
   @override
-  LiveUtterance open() {
-    final session = _Session(this);
-    unawaited(session.run());
-    return session;
+  LiveConversation connect() {
+    final conversation = _Conversation(this);
+    unawaited(conversation.run());
+    return conversation;
   }
 }
 
-class _Session implements LiveUtterance {
-  _Session(this._source);
+class _Conversation implements LiveConversation {
+  _Conversation(this._source);
 
   /// 100 ms of PCM16 16 kHz mono.
   static const frameBytes = 3200;
-  static const _upstreamDown = 4503;
+
+  /// Audio kept while reconnecting so a sentence in progress survives.
+  static const backlogFrames = 30;
   static const _unauthorized = 4001;
 
   final PhraseStreamSource _source;
   final _events = StreamController<LiveEvent>();
-  final _frames = <Uint8List>[];
   final _pending = BytesBuilder(copy: false);
+  final _backlog = <Uint8List>[];
   WebSocketChannel? _channel;
   bool _open = false;
-  bool _ended = false;
-  bool _done = false;
-  Timer? _finalTimer;
+  bool _closed = false;
 
   @override
   Stream<LiveEvent> get events => _events.stream;
 
   @override
-  bool get isClosed => _done;
-
-  @override
   void add(Uint8List audio) {
-    if (_done || _ended) return;
+    if (_closed) return;
     _pending.add(audio);
     while (_pending.length >= frameBytes) {
       final bytes = _pending.takeBytes();
@@ -93,70 +87,60 @@ class _Session implements LiveUtterance {
   }
 
   void _frame(Uint8List frame) {
-    _frames.add(frame);
-    if (_open) _channel?.sink.add(frame);
+    if (_open) {
+      _channel?.sink.add(frame);
+      return;
+    }
+    _backlog.add(frame);
+    if (_backlog.length > backlogFrames) _backlog.removeAt(0);
   }
 
   @override
-  void end() {
-    if (_done || _ended) return;
-    if (_pending.isNotEmpty) _frame(_pending.takeBytes());
-    _ended = true;
-    if (_open) _sendEnd();
-    _finalTimer = Timer(_source.finalTimeout, () {
-      AppLog.ws('no final in ${_source.finalTimeout.inSeconds}s');
-      _finish(const LiveFailed(TimeoutFailure()));
-    });
-  }
-
-  void _sendEnd() {
-    _channel?.sink.add(jsonEncode({'type': 'end'}));
-    AppLog.ws('-> ${_frames.length} frames, end');
-  }
-
-  @override
-  void cancel() {
-    if (_done) return;
+  Future<void> close() async {
+    if (_closed) return;
+    _closed = true;
     if (_open) _channel?.sink.add(jsonEncode({'type': 'cancel'}));
-    AppLog.ws('-> cancel');
-    _finish(null);
+    AppLog.ws('-> cancel, closing');
+    _open = false;
+    await _channel?.sink.close();
+    await _events.close();
   }
 
-  void _finish(LiveEvent? event) {
-    if (_done) return;
-    _done = true;
-    _finalTimer?.cancel();
-    if (event != null) _events.add(event);
-    unawaited(_events.close());
-    unawaited(_channel?.sink.close());
+  void _emit(LiveEvent event) {
+    if (!_closed) _events.add(event);
   }
 
   Future<void> run() async {
-    for (var attempt = 0; ; attempt++) {
-      final retry = await _attempt(attempt);
-      if (_done) return;
-      if (!retry || attempt >= _source.retryDelays.length) {
-        _finish(const LiveFailed(NetworkFailure()));
-        return;
+    var failures = 0;
+    while (!_closed) {
+      final outcome = await _attempt();
+      if (_closed || outcome == _Outcome.stop) return;
+      if (outcome == _Outcome.reconnect) {
+        failures = 0;
+        continue;
       }
-      await Future<void>.delayed(_source.retryDelays[attempt]);
-      if (_done) return;
+      failures++;
+      if (failures == _source.retryDelays.length) {
+        _emit(const LiveFailed(NetworkFailure()));
+      }
+      final delays = _source.retryDelays;
+      await Future<void>.delayed(
+        delays[failures <= delays.length ? failures - 1 : delays.length - 1],
+      );
     }
   }
 
-  /// Returns whether a reconnect may help.
-  Future<bool> _attempt(int attempt) async {
-    final String? token;
+  Future<_Outcome> _attempt() async {
+    String? token;
     try {
       token = await _source._tokens.read();
     } on Object {
-      _finish(const LiveFailed(UnauthorizedFailure()));
-      return false;
+      // Treated as signed out below.
     }
-    if (_done) return false;
+    if (_closed) return _Outcome.stop;
     if (token == null || token.isEmpty) {
-      _finish(const LiveFailed(UnauthorizedFailure()));
-      return false;
+      _emit(const LiveFailed(UnauthorizedFailure(), recovering: false));
+      return _Outcome.stop;
     }
     final endpoint = _source.endpoint;
     final channel = _channel = _source._connect(
@@ -167,25 +151,25 @@ class _Session implements LiveUtterance {
       await channel.ready;
     } on Object catch (error) {
       AppLog.ws('connect ${endpoint.path} failed (${error.runtimeType})');
-      return true;
+      return _Outcome.failed;
     }
-    if (_done) {
+    if (_closed) {
       unawaited(channel.sink.close());
-      return false;
+      return _Outcome.stop;
     }
     AppLog.ws(
-      'open ${endpoint.path} attempt ${attempt + 1} '
-      '${DateTime.now().difference(started).inMilliseconds}ms',
+      'open ${endpoint.path} '
+      '${DateTime.now().difference(started).inMilliseconds}ms, '
+      'backlog ${_backlog.length} frames',
     );
     _open = true;
-    _frames.forEach(channel.sink.add);
-    if (_ended) _sendEnd();
-    var retry = false;
+    _backlog
+      ..forEach(channel.sink.add)
+      ..clear();
     try {
       await for (final message in channel.stream) {
-        if (message is! String) continue;
-        retry = _receive(message);
-        if (_done) break;
+        if (message is String) _receive(message);
+        if (_closed) break;
       }
     } on Object catch (error) {
       AppLog.ws('stream error (${error.runtimeType})');
@@ -193,71 +177,67 @@ class _Session implements LiveUtterance {
     _open = false;
     final code = channel.closeCode;
     AppLog.ws('closed $code');
-    if (_done) return false;
+    if (_closed) return _Outcome.stop;
     if (code == _unauthorized) {
       _source._expiry.emit();
-      _finish(const LiveFailed(UnauthorizedFailure()));
-      return false;
+      _emit(const LiveFailed(UnauthorizedFailure(), recovering: false));
+      return _Outcome.stop;
     }
-    return retry || code == _upstreamDown || code == null;
+    // The server may close after each sentence or at its length limit; the
+    // conversation simply carries on over a new connection.
+    return _Outcome.reconnect;
   }
 
-  /// Handles one server message; returns whether it asks for a reconnect.
-  bool _receive(String message) {
+  void _receive(String message) {
     final Object? json;
     try {
       json = jsonDecode(message);
     } on FormatException {
-      return false;
+      return;
     }
-    if (json is! Map<String, Object?>) return false;
+    if (json is! Map<String, Object?>) return;
     final traceId = json['trace_id'] as String? ?? '';
     switch (json['type']) {
       case 'transcript':
         final text = (json['text'] as String? ?? '').trim();
         if (json['final'] != true) {
           AppLog.ws('<- interim "$text"');
-          if (text.isNotEmpty) _events.add(LiveInterim(text));
-          return false;
+          if (text.isNotEmpty) _emit(LiveInterim(text));
+          return;
         }
         final confidence = (json['confidence'] as num?)?.toDouble() ?? 0;
-        AppLog.ws('<- final "$text" $confidence trace $traceId');
-        _finish(
-          LiveFinal(
-            Transcription(
-              traceId: traceId,
-              finalTranscript: text,
-              asrConfidence: confidence,
-            ),
-          ),
+        AppLog.ws(
+          '<- final "$text" $confidence is_last=${json['is_last']} '
+          'trace $traceId',
+        );
+        _emit(
+          text.isEmpty
+              ? const LiveUnclear()
+              : LiveFinal(
+                  Transcription(
+                    traceId: traceId,
+                    finalTranscript: text,
+                    asrConfidence: confidence,
+                  ),
+                ),
         );
       case 'error':
         final code = json['error_code'] as String?;
-        final text = json['message'] as String?;
         AppLog.ws('<- error $code trace $traceId');
         switch (code) {
           case 'ASR_LOW_CONFIDENCE':
-            _finish(const LiveUnclear());
-          case 'ML_UPSTREAM_UNAVAILABLE':
-            return true;
+            _emit(const LiveUnclear());
           case 'UNAUTHORIZED':
             _source._expiry.emit();
-            _finish(const LiveFailed(UnauthorizedFailure()));
+            _emit(const LiveFailed(UnauthorizedFailure(), recovering: false));
           default:
-            _finish(
-              LiveFailed(
-                ServerFailure(
-                  statusCode: null,
-                  message: text ?? '일시적인 문제가 생겼어요.',
-                  errorCode: code,
-                  traceId: traceId,
-                ),
-              ),
-            );
+            // The connection closes after this and is reopened.
+            break;
         }
       case 'end_notice':
         AppLog.ws('<- end_notice ${json['reason']}');
     }
-    return false;
   }
 }
+
+enum _Outcome { reconnect, failed, stop }
