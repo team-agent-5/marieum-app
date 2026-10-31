@@ -6,8 +6,10 @@ import 'package:marieum_app/core/error/result.dart';
 import 'package:marieum_app/core/tts/tts_engine.dart';
 import 'package:marieum_app/core/tts/tts_mapping.dart';
 import 'package:marieum_app/core/tts/tts_port.dart';
+import 'package:marieum_app/core/tts/tts_voice.dart';
+import 'package:marieum_app/core/tts/tts_voice_selector.dart';
 
-class TtsService implements TtsPort {
+class TtsService implements TtsPort, TtsVoiceSelector {
   TtsService({
     required this._engine,
     required this._audioSession,
@@ -25,6 +27,53 @@ class TtsService implements TtsPort {
   Future<Result<void>>? _stopOperation;
   bool _koreanAvailable = false;
   Future<bool>? _availabilityCheck;
+  List<TtsVoice>? _voices;
+  Future<List<TtsVoice>>? _voicesCheck;
+  String? _voiceId;
+  @override
+  TtsVoice? get currentVoice => _currentVoice;
+  TtsVoice? _currentVoice;
+
+  @override
+  Future<List<TtsVoice>> availableVoices() => _voicesCheck ??= _loadVoices();
+
+  Future<List<TtsVoice>> _loadVoices() async {
+    try {
+      _voices = List.unmodifiable(await _engine.koreanVoices());
+    } on Object {
+      _voices = const [];
+    }
+    _chooseVoice();
+    return _voices!;
+  }
+
+  void _chooseVoice() {
+    final voices = _voices;
+    if (voices == null) return;
+    final preferred = voices.where((voice) => voice.id == _voiceId).firstOrNull;
+    if (preferred != null) {
+      _currentVoice = preferred;
+      return;
+    }
+    TtsVoice? best;
+    for (final voice in voices) {
+      final candidate = best;
+      if (candidate == null ||
+          (candidate.requiresNetwork && !voice.requiresNetwork) ||
+          (candidate.requiresNetwork == voice.requiresNetwork &&
+              voice.quality.index < candidate.quality.index)) {
+        best = voice;
+      }
+    }
+    _currentVoice = best;
+  }
+
+  @override
+  Future<void> selectVoice(String? id) async {
+    if (_voiceId == id) return;
+    _voiceId = id;
+    _chooseVoice();
+  }
 
   @override
   Future<bool> isKoreanAvailable() {
@@ -55,10 +104,21 @@ class TtsService implements TtsPort {
     try {
       if (!await isKoreanAvailable()) throw const TtsUnavailableFailure();
       if (active.isCompleted) return;
+      await availableVoices();
+      if (active.isCompleted) return;
+      final voice = currentVoice;
       await _engine.configure(
         rate: TtsMapping.rate(_platform, rate),
         volume: TtsMapping.volume(volume),
       );
+      if (active.isCompleted) return;
+      if (voice != null) {
+        try {
+          await _engine.setVoice(voice);
+        } on Object {
+          // configure has already selected the default Korean voice.
+        }
+      }
       if (active.isCompleted) return;
       // Apply last, after flutter_tts has configured its shared iOS session.
       await _audioSession.configure();

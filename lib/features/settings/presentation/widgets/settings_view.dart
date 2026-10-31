@@ -9,11 +9,46 @@ import 'package:marieum_app/core/ui/feature_panel.dart';
 import 'package:marieum_app/core/ui/key_text.dart';
 import 'package:marieum_app/features/settings/domain/entities/app_settings.dart';
 import 'package:marieum_app/features/settings/presentation/cubit/settings_cubit.dart';
+import 'package:marieum_app/features/settings/presentation/widgets/voice_picker_sheet.dart';
 import 'package:marieum_app/features/speak/domain/entities/playback_request.dart';
 
 class SettingsView extends StatelessWidget {
   const SettingsView({required this.settings, super.key});
   final AppSettings settings;
+
+  Future<void> _chooseVoice(BuildContext context) async {
+    final cubit = context.read<SettingsCubit>();
+    unawaited(cubit.loadVoices());
+    final choice = await showModalBottomSheet<VoiceChoice>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.white,
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.8,
+      ),
+      builder: (_) => BlocProvider.value(
+        value: cubit,
+        child: const VoicePickerSheet(),
+      ),
+    );
+    if (choice == null || !context.mounted) return;
+    if (choice.preview) {
+      await cubit.previewVoice(choice.id, () async {
+        if (!context.mounted) return;
+        await context.push<void>(
+          '/speak/playback',
+          extra: const PlaybackRequest(
+            text: '미지근한 물 주세요',
+            origin: PlaybackOrigin.preview,
+          ),
+        );
+      });
+    } else {
+      await cubit.setVoice(choice.id);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => ListView(
     padding: const EdgeInsets.all(18),
@@ -28,6 +63,23 @@ class SettingsView extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              Material(
+                color: Colors.transparent,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(
+                    Icons.record_voice_over_outlined,
+                    color: AppTokens.primaryStrong,
+                  ),
+                  title: const Text('목소리'),
+                  subtitle: Text(
+                    settings.voiceId == null ? '자동(추천)' : '선택한 목소리',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => unawaited(_chooseVoice(context)),
+                ),
+              ),
+              const Divider(height: 28),
               const _SettingLabel(
                 icon: Icons.speed_rounded,
                 text: '말하는 속도',

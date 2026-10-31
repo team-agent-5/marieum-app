@@ -101,5 +101,45 @@ void main() {
         expect(prefs.readString(PrefsKeys.ttsRate), 'fast');
       },
     );
+    test(
+      'persists a voice only locally and restores it through applyVoice',
+      () async {
+        final repository = SettingsRepositoryImpl(
+          prefs: prefs,
+          mirror: mirror,
+          applyVoice: applied.add,
+        );
+        const settings = AppSettings(voiceId: 'ko-voice-id');
+        expect(await repository.save(settings), isA<Success<void>>());
+        expect(prefs.readString(PrefsKeys.ttsVoiceId), 'ko-voice-id');
+        final restored = SettingsRepositoryImpl(
+          prefs: prefs,
+          mirror: mirror,
+          applyVoice: applied.add,
+        );
+        expect(restored.initial.voiceId, 'ko-voice-id');
+        expect(applied.last.voiceId, 'ko-voice-id');
+        expect(settingsPayload(settings), {
+          'tts_rate': 'normal',
+          'tts_volume': 'normal',
+          'large_text': false,
+        });
+        await repository.save(settings.copyWith(voiceId: null));
+        expect(prefs.readString(PrefsKeys.ttsVoiceId), isNull);
+        final auto = SettingsRepositoryImpl(
+          prefs: prefs,
+          mirror: mirror,
+          applyVoice: applied.add,
+        );
+        expect(auto.initial.voiceId, isNull);
+      },
+    );
+
+    test('preserves a selected voice when unrelated settings change', () async {
+      const settings = AppSettings(voiceId: 'ko-voice-id');
+      expect(settings.copyWith(rate: TtsRate.fast).voiceId, 'ko-voice-id');
+      expect(settings.copyWith(largeText: true).voiceId, 'ko-voice-id');
+      expect(settings.copyWith(voiceId: null).voiceId, isNull);
+    });
   });
 }

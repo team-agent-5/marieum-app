@@ -6,16 +6,24 @@ class AppSettings extends Equatable {
     this.rate = TtsRate.normal,
     this.volume = TtsVolume.normal,
     this.largeText = false,
+    this.voiceId,
   });
   final TtsRate rate;
   final TtsVolume volume;
   final bool largeText;
-  AppSettings copyWith({TtsRate? rate, TtsVolume? volume, bool? largeText}) =>
-      AppSettings(
-        rate: rate ?? this.rate,
-        volume: volume ?? this.volume,
-        largeText: largeText ?? this.largeText,
-      );
+  final String? voiceId;
+  static const _unchanged = Object();
+  AppSettings copyWith({
+    TtsRate? rate,
+    TtsVolume? volume,
+    bool? largeText,
+    Object? voiceId = _unchanged,
+  }) => AppSettings(
+    rate: rate ?? this.rate,
+    volume: volume ?? this.volume,
+    largeText: largeText ?? this.largeText,
+    voiceId: identical(voiceId, _unchanged) ? this.voiceId : voiceId as String?,
+  );
   @override
-  List<Object?> get props => [rate, volume, largeText];
+  List<Object?> get props => [rate, volume, largeText, voiceId];
 }

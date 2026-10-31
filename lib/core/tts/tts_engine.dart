@@ -3,9 +3,12 @@ import 'dart:async';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:marieum_app/core/error/failure.dart';
 import 'package:marieum_app/core/tts/tts_port.dart';
+import 'package:marieum_app/core/tts/tts_voice.dart';
 
 abstract interface class TtsEngine {
   Future<bool> isLanguageAvailable(String language);
+  Future<List<TtsVoice>> koreanVoices();
+  Future<void> setVoice(TtsVoice voice);
   Future<void> configure({required double rate, required double volume});
   Future<void> speak(String text);
   Future<void> stop();
@@ -42,6 +45,85 @@ class FlutterTtsEngine implements TtsEngine {
   @override
   Future<bool> isLanguageAvailable(String language) async =>
       await _plugin.isLanguageAvailable(language) == true;
+
+  @override
+  Future<List<TtsVoice>> koreanVoices() async {
+    final Object? voices = await _plugin.getVoices;
+    if (voices is! List) return const [];
+    final result = <TtsVoice>[];
+    for (final Object? raw in voices) {
+      if (raw is! Map) continue;
+      final name = _text(raw['name']);
+      final locale = _text(raw['locale']);
+      if (name == null ||
+          locale == null ||
+          !locale.toLowerCase().startsWith('ko')) {
+        continue;
+      }
+      result.add(
+        TtsVoice(
+          id: _text(raw['identifier']) ?? _text(raw['id']) ?? name,
+          name: name,
+          locale: locale,
+          quality: _quality(raw['quality']),
+          requiresNetwork: _networkRequired(raw),
+        ),
+      );
+    }
+    return result;
+  }
+
+  static String? _text(Object? value) =>
+      value is String && value.trim().isNotEmpty ? value.trim() : null;
+
+  TtsVoiceQuality _quality(Object? value) {
+    final text = _text(value)?.toLowerCase();
+    if (_platform == VoicePlatform.ios) {
+      return switch (text) {
+        'premium' => TtsVoiceQuality.premium,
+        'enhanced' => TtsVoiceQuality.enhanced,
+        'default' => TtsVoiceQuality.normal,
+        _ => TtsVoiceQuality.unknown,
+      };
+    }
+    final number = value is num ? value : num.tryParse(text ?? '');
+    if (number != null) {
+      if (number >= 500) return TtsVoiceQuality.high;
+      if (number >= 300) return TtsVoiceQuality.normal;
+      return TtsVoiceQuality.unknown;
+    }
+    return switch (text) {
+      'very high' => TtsVoiceQuality.high,
+      'high' || 'normal' => TtsVoiceQuality.normal,
+      _ => TtsVoiceQuality.unknown,
+    };
+  }
+
+  static bool _networkRequired(Map<Object?, Object?> voice) {
+    final value = voice['network_required'];
+    if (value == true || value == 1 || value == '1' || value == 'true') {
+      return true;
+    }
+    final features = voice['features'];
+    final tokens = switch (features) {
+      String() => features.split(RegExp(r'[\s,;]+')),
+      Iterable<Object?>() => features.whereType<String>(),
+      _ => const <String>[],
+    };
+    return tokens.any((feature) => feature.toLowerCase() == 'networktts');
+  }
+
+  @override
+  Future<void> setVoice(TtsVoice voice) async {
+    final Object? result = await _plugin.setVoice({
+      'name': voice.name,
+      'locale': voice.locale,
+      // iOS picks the exact voice by identifier; same-name voices differ in
+      // quality, so name and locale alone are ambiguous.
+      if (voice.id != voice.name) 'identifier': voice.id,
+    });
+    if (result != 1) throw const TtsFailure('목소리를 설정하지 못했습니다.');
+  }
 
   @override
   Future<void> configure({required double rate, required double volume}) async {

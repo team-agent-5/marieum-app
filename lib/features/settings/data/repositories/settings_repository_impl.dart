@@ -24,6 +24,7 @@ class SettingsRepositoryImpl implements SettingsRepository {
                  .firstOrNull ??
              TtsVolume.normal,
          largeText: prefs.readBool(PrefsKeys.largeText) ?? false,
+         voiceId: prefs.readString(PrefsKeys.ttsVoiceId),
        ) {
     applyVoice(initial);
   }
@@ -43,6 +44,12 @@ class SettingsRepositoryImpl implements SettingsRepository {
         await prefs.writeString(PrefsKeys.ttsRate, settings.rate.name);
         await prefs.writeString(PrefsKeys.ttsVolume, settings.volume.name);
         await prefs.writeBool(PrefsKeys.largeText, value: settings.largeText);
+        final voiceId = settings.voiceId;
+        if (voiceId == null) {
+          await prefs.remove(PrefsKeys.ttsVoiceId);
+        } else {
+          await prefs.writeString(PrefsKeys.ttsVoiceId, voiceId);
+        }
       } on Object catch (error) {
         failure = error is Failure ? error : StorageFailure(cause: error);
       }

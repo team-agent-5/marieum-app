@@ -11,6 +11,7 @@ abstract final class PrefsKeys {
   static const lastLogId = 'last_log_id';
   static const quickPhrases = 'quick_phrases';
   static const pendingSelectionLogs = 'pending_selection_logs';
+  static const ttsVoiceId = 'tts_voice_id';
 }
 
 abstract interface class PrefsBackend {
