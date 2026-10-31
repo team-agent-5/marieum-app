@@ -60,6 +60,9 @@ class _Conversation implements LiveConversation {
 
   /// Audio kept while reconnecting so a sentence in progress survives.
   static const backlogFrames = 30;
+
+  /// Gap between kept frames when sending them after reconnecting.
+  static const catchUpGap = Duration(milliseconds: 50);
   static const _unauthorized = 4001;
 
   final PhraseStreamSource _source;
@@ -87,12 +90,21 @@ class _Conversation implements LiveConversation {
   }
 
   void _frame(Uint8List frame) {
-    if (_open) {
+    if (_open && _backlog.isEmpty) {
       _channel?.sink.add(frame);
       return;
     }
     _backlog.add(frame);
-    if (_backlog.length > backlogFrames) _backlog.removeAt(0);
+    if (!_open && _backlog.length > backlogFrames) _backlog.removeAt(0);
+  }
+
+  /// Sends audio kept while reconnecting at twice its real pace, new audio
+  /// queued behind it, so the recognizer does not get seconds at once.
+  Future<void> _catchUp(WebSocketChannel channel) async {
+    while (_open && _channel == channel && _backlog.isNotEmpty) {
+      channel.sink.add(_backlog.removeAt(0));
+      await Future<void>.delayed(catchUpGap);
+    }
   }
 
   @override
@@ -163,9 +175,7 @@ class _Conversation implements LiveConversation {
       'backlog ${_backlog.length} frames',
     );
     _open = true;
-    _backlog
-      ..forEach(channel.sink.add)
-      ..clear();
+    unawaited(_catchUp(channel));
     try {
       await for (final message in channel.stream) {
         if (message is String) _receive(message);
@@ -199,7 +209,7 @@ class _Conversation implements LiveConversation {
     final traceId = json['trace_id'] as String? ?? '';
     switch (json['type']) {
       case 'transcript':
-        final text = (json['text'] as String? ?? '').trim();
+        final text = _clean(json['text'] as String? ?? '');
         if (json['final'] != true) {
           AppLog.ws('<- interim "$text"');
           if (text.isNotEmpty) _emit(LiveInterim(text));
@@ -238,6 +248,11 @@ class _Conversation implements LiveConversation {
         AppLog.ws('<- end_notice ${json['reason']}');
     }
   }
+
+  /// The recognizer sometimes splits a Hangul syllable and sends the broken
+  /// half as U+FFFD; it is dropped and the rest of the sentence kept.
+  static String _clean(String text) =>
+      text.replaceAll('\uFFFD', '').replaceAll(RegExp(r'\s{2,}'), ' ').trim();
 }
 
 enum _Outcome { reconnect, failed, stop }
