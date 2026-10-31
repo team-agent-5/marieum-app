@@ -55,14 +55,26 @@ void main() {
 
     test('hears a quiet voice in a quiet room', () {
       feed(0.02, 20);
-      expect(segmenter.threshold, closeTo(0.22, 1e-9));
+      expect(segmenter.threshold, closeTo(0.25, 1e-9));
       expect(feed(0.3).single, isA<SegmentStarted>());
     });
 
     test('keeps the room level across a reset', () {
       feed(0.02, 20);
       segmenter.reset();
-      expect(segmenter.threshold, closeTo(0.22, 1e-9));
+      expect(segmenter.threshold, closeTo(0.25, 1e-9));
+    });
+
+    test('needs louder input than the app while it speaks', () {
+      feed(0.02, 20);
+      segmenter.playbackFloor = 0.5;
+      expect(segmenter.threshold, 0.5);
+      expect(feed(0.4), isEmpty);
+      expect(feed(0.6).single, isA<SegmentStarted>());
+      segmenter
+        ..reset()
+        ..playbackFloor = null;
+      expect(segmenter.threshold, closeTo(0.25, 1e-9));
     });
 
     test('reset drops the segment in progress', () {

@@ -33,7 +33,7 @@ final class SegmentEnded extends SegmentSignal {
 class SpeechSegmenter {
   SpeechSegmenter({
     this.margin = 0.2,
-    this.minThreshold = 0.2,
+    this.minThreshold = 0.25,
     this.maxThreshold = 0.6,
     this.noiseWindow = const Duration(seconds: 5),
     this.minSpeech = const Duration(milliseconds: 300),
@@ -76,7 +76,14 @@ class SpeechSegmenter {
   var _silenceMs = 0;
 
   /// [pcmLevel] at or above this counts as voice.
-  double get threshold => _threshold;
+  double get threshold {
+    final floor = playbackFloor;
+    return floor != null && floor > _threshold ? floor : _threshold;
+  }
+
+  /// While the app is speaking, only input above this counts as voice so
+  /// its own playback is not taken for the patient.
+  double? playbackFloor;
 
   /// Whether the current input is voice.
   bool get hearing => _inSegment && _silenceMs == 0;
@@ -86,7 +93,7 @@ class SpeechSegmenter {
   SegmentSignal? add(Uint8List chunk, {double? level}) {
     final value = level ?? pcmLevel(chunk);
     final chunkMs = chunk.length ~/ _bytesPerMs;
-    final loud = value >= _threshold;
+    final loud = value >= threshold;
     _listen(value, chunkMs);
     if (!_inSegment) {
       if (!loud) {
