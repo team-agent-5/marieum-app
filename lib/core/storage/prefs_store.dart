@@ -13,6 +13,8 @@ abstract final class PrefsKeys {
   static const pendingSelectionLogs = 'pending_selection_logs';
   static const ttsVoiceId = 'tts_voice_id';
   static const cloudVoice = 'cloud_voice';
+  static const speechPace = 'speech_pace';
+  static const speechRate = 'speech_rate';
 }
 
 abstract interface class PrefsBackend {

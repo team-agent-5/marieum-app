@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:marieum_app/core/audio/speech_pace.dart';
 import 'package:marieum_app/core/error/failure.dart';
 import 'package:marieum_app/core/error/result.dart';
 import 'package:marieum_app/core/tts/cloud_voice.dart';
@@ -49,6 +50,8 @@ class SettingsCubit extends Cubit<SettingsState> {
       _change(state.settings.copyWith(largeText: value));
   Future<void> setCloudVoice(CloudVoice voice) =>
       _change(state.settings.copyWith(cloudVoice: voice));
+  Future<void> setSpeechPace(SpeechPace pace) =>
+      _change(state.settings.copyWith(speechPace: pace));
   Future<void> setVoice(String? id) =>
       _change(state.settings.copyWith(voiceId: id));
 

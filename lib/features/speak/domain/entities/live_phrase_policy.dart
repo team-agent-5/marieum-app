@@ -18,6 +18,9 @@ abstract final class LivePhrasePolicy {
         .split(RegExp(r'\s+'))
         .where((w) => w.isNotEmpty)
         .toList();
+    // The same piece over and over with no spaces between, as in
+    // "자동차를타고자동차를타고자동차를타고".
+    if (RegExp(r'(.{2,8})\1\1').hasMatch(compact)) return true;
     for (var n = 1; n <= 4; n++) {
       final counts = <String, int>{};
       for (var i = 0; i + n <= words.length; i++) {
@@ -28,6 +31,59 @@ abstract final class LivePhrasePolicy {
     }
     return false;
   }
+
+  /// Word endings that leave a Korean sentence open: particles and
+  /// connective endings after which more is expected.
+  static const _openEndings = [
+    '는데',
+    '은데',
+    '인데',
+    '지만',
+    '면서',
+    '다가',
+    '려고',
+    '어서',
+    '아서',
+    '해서',
+    '니까',
+    '에서',
+    '에게',
+    '한테',
+    '부터',
+    '까지',
+    '이랑',
+    '으로',
+    '고',
+    '서',
+    '면',
+    '며',
+    '는',
+    '은',
+    '을',
+    '를',
+    '에',
+    '의',
+    '와',
+    '과',
+    '로',
+    '랑',
+    '게',
+    '데',
+  ];
+
+  /// Whether [text] stops where a sentence cannot end, as when a patient
+  /// who speaks slowly pauses midway and the recognizer closes it there.
+  static bool isUnfinished(String text) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty || RegExp(r'[.?!]$').hasMatch(trimmed)) return false;
+    final last = trimmed.split(RegExp(r'\s+')).last;
+    if (last.runes.length < 2) return false;
+    return _openEndings.any(last.endsWith);
+  }
+
+  /// Too short to be worth a line of its own, like a single syllable left
+  /// over from the app's own voice.
+  static bool isFragment(String text) => _normalize(text).runes.length <= 2;
 
   /// Length of the leading words [previous] and [current] agree on, the
   /// part of a changing reading that is likely to stay.
