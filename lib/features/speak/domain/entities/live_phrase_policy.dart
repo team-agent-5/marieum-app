@@ -21,6 +21,8 @@ abstract final class LivePhrasePolicy {
     // The same piece over and over with no spaces between, as in
     // "자동차를타고자동차를타고자동차를타고".
     if (RegExp(r'(.{2,8})\1\1').hasMatch(compact)) return true;
+    // A long phrase said twice, as when the loop repeats a whole clause.
+    if (RegExp(r'(.{8,}).*\1').hasMatch(compact)) return true;
     for (var n = 1; n <= 4; n++) {
       final counts = <String, int>{};
       for (var i = 0; i + n <= words.length; i++) {
@@ -31,6 +33,16 @@ abstract final class LivePhrasePolicy {
     }
     return false;
   }
+
+  /// Syllables per second of voice above which text is taken as made up.
+  /// Voice counts only the louder parts of speech, so this is generous.
+  static const maxRate = 10;
+
+  /// More text than the voice heard could hold: the recognizer added words
+  /// of its own, as in a sentence from its training or a long tail.
+  static bool isOverlong(String text, Duration voice) =>
+      _normalize(text).runes.length >
+      voice.inMilliseconds * maxRate ~/ 1000 + 4;
 
   /// Word endings that leave a Korean sentence open: particles and
   /// connective endings after which more is expected.

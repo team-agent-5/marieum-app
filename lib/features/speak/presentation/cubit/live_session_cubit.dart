@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:marieum_app/core/audio/live_sound.dart';
 import 'package:marieum_app/core/audio/mic_stream.dart';
 import 'package:marieum_app/core/audio/recorder.dart';
 import 'package:marieum_app/core/audio/speech_pace.dart';
@@ -142,8 +143,10 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     this.muteWhileSpeaking = false,
     this._pace,
     SpeechSegmenter? segmenter,
+    LiveSound? sound,
     DateTime Function()? now,
   }) : _levels = segmenter ?? SpeechSegmenter(),
+       _sound = sound ?? LiveSound(),
        _now = now ?? DateTime.now,
        super(const LiveSessionState());
 
@@ -197,6 +200,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
 
   final MicStream _mic;
   final LiveStream _stream;
+  final LiveSound _sound;
   final UtteranceRepository _repository;
   final PlaybackTtsPort _tts;
   final SpeechPaceTracker? _pace;
@@ -300,7 +304,9 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     final muted =
         muteWhileSpeaking &&
         (_sounding || (mutedUntil != null && _now().isBefore(mutedUntil)));
-    _conversation?.add(muted ? quietNoise(chunk.length) : chunk);
+    _conversation?.add(
+      muted ? quietNoise(chunk.length) : _sound.process(chunk),
+    );
     emit(
       state.copyWith(
         levels: levels,
@@ -395,7 +401,8 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     final from =
         (_startedAt[id] ?? finalAt.subtract(const Duration(seconds: 10)))
             .subtract(const Duration(milliseconds: 1500));
-    if (_voiceSince(from) < minVoice) {
+    final voice = _voiceSince(from);
+    if (voice < minVoice) {
       AppLog.speak('live segment $id no voice on the microphone, dropped');
       if (heldNow != null && id == heldNow.id) {
         _show(
@@ -418,7 +425,13 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     final echo = _isEcho(text);
     // A scrap heard right after the app spoke is most likely its own voice.
     final scrap = _nearOwnVoice && (LivePhrasePolicy.isFragment(text) || weak);
-    final runaway = LivePhrasePolicy.isRunaway(text);
+    final runaway =
+        LivePhrasePolicy.isRunaway(text) ||
+        LivePhrasePolicy.isOverlong(text, voice);
+    AppLog.speak(
+      'live segment $id voice=${voice.inMilliseconds}ms '
+      'chars=${text.length} runaway=$runaway',
+    );
     if (echo || scrap || runaway || weak) {
       // What was kept back is said as it is; this piece gets its own line.
       final held = _held;
