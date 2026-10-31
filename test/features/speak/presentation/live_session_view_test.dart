@@ -77,6 +77,38 @@ void main() {
       verify(() => cubit.replay(0)).called(1);
     });
 
+    testWidgets('keeps a lone sentence in the middle', (tester) async {
+      LiveSegment done(int id) => LiveSegment(
+        id: id,
+        at: _at,
+        status: LiveSegmentStatus.done,
+        text: '문장$id',
+      );
+      final card = find.byKey(const ValueKey('live_transcript'));
+
+      await pumpView(
+        tester,
+        LiveSessionState(status: LiveStatus.listening, segments: [done(0)]),
+      );
+      final middle = tester.getCenter(card).dy;
+      expect(
+        (tester.getCenter(find.text('문장0')).dy - middle).abs(),
+        lessThan(30),
+      );
+
+      await pumpView(
+        tester,
+        LiveSessionState(
+          status: LiveStatus.listening,
+          segments: [for (var i = 0; i < 12; i++) done(i)],
+        ),
+      );
+      expect(
+        tester.getBottomLeft(find.text('문장11')).dy,
+        greaterThan(tester.getBottomLeft(card).dy - 60),
+      );
+    });
+
     testWidgets('shows interpreted sentences and progress', (tester) async {
       await pumpView(
         tester,
