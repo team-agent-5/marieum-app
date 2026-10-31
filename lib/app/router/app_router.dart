@@ -13,7 +13,10 @@ import 'package:marieum_app/features/auth/presentation/pages/login_page.dart';
 import 'package:marieum_app/features/auth/presentation/pages/onboarding_page.dart';
 import 'package:marieum_app/features/auth/presentation/pages/signup_page.dart';
 import 'package:marieum_app/features/auth/presentation/pages/splash_page.dart';
+import 'package:marieum_app/features/history/presentation/history_cubit.dart';
+import 'package:marieum_app/features/history/presentation/history_page.dart';
 import 'package:marieum_app/features/quick_phrase/presentation/bloc/quick_phrase_bloc.dart';
+import 'package:marieum_app/features/settings/presentation/settings_page.dart';
 import 'package:marieum_app/features/speak/domain/entities/playback_request.dart';
 import 'package:marieum_app/features/speak/presentation/bloc/utterance_bloc.dart';
 import 'package:marieum_app/features/speak/presentation/cubit/playback_cubit.dart';
@@ -27,6 +30,7 @@ GoRouter createAppRouter({
   required QuickPhraseBloc Function() createQuickPhraseBloc,
   required PlaybackCubit Function(PlaybackRequest) createPlaybackCubit,
   required UtteranceBloc Function() createUtteranceBloc,
+  required HistoryCubit Function() createHistoryCubit,
   String initialLocation = AppRoutes.splash,
 }) {
   final rootKey = GlobalKey<NavigatorState>();
@@ -102,7 +106,9 @@ GoRouter createAppRouter({
                       path: path,
                       builder: (context, state) => path == AppRoutes.speak
                           ? const SpeakPage()
-                          : const SizedBox.expand(),
+                          : path == AppRoutes.history
+                          ? HistoryPage(createCubit: createHistoryCubit)
+                          : const SettingsPage(),
                     ),
                   ],
                 ),

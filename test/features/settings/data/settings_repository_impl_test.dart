@@ -1,0 +1,103 @@
+import 'dart:async';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:marieum_app/core/error/failure.dart';
+import 'package:marieum_app/core/error/result.dart';
+import 'package:marieum_app/core/storage/prefs_store.dart';
+import 'package:marieum_app/core/tts/tts_port.dart';
+import 'package:marieum_app/features/settings/data/settings_repository_impl.dart';
+import 'package:marieum_app/features/settings/domain/app_settings.dart';
+import 'package:mocktail/mocktail.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+class _MockMirror extends Mock implements SettingsMirror {}
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(() => registerFallbackValue(const AppSettings()));
+  group(SettingsRepositoryImpl, () {
+    late PrefsStore prefs;
+    late _MockMirror mirror;
+    late List<AppSettings> applied;
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({
+        PrefsKeys.ttsRate: 'fast',
+        PrefsKeys.ttsVolume: 'soft',
+        PrefsKeys.largeText: true,
+      });
+      prefs = PrefsStore(
+        SharedPrefsBackend(await SharedPreferences.getInstance()),
+      );
+      mirror = _MockMirror();
+      applied = [];
+      when(
+        () => mirror.send(any()),
+      ).thenAnswer((_) async => const Success(null));
+    });
+    test('loads local values and applies voice settings at construction', () {
+      final repository = SettingsRepositoryImpl(
+        prefs: prefs,
+        mirror: mirror,
+        applyVoice: applied.add,
+      );
+      expect(
+        repository.initial,
+        const AppSettings(
+          rate: TtsRate.fast,
+          volume: TtsVolume.soft,
+          largeText: true,
+        ),
+      );
+      expect(applied, [repository.initial]);
+    });
+    test('stores app names and maps only the server volume names', () async {
+      final repository = SettingsRepositoryImpl(
+        prefs: prefs,
+        mirror: mirror,
+        applyVoice: applied.add,
+      );
+      const settings = AppSettings(volume: TtsVolume.loud);
+      await repository.save(settings);
+      await Future<void>.delayed(Duration.zero);
+      expect(prefs.readString(PrefsKeys.ttsVolume), 'loud');
+      expect(settingsPayload(settings)['tts_volume'], 'high');
+      expect(
+        settingsPayload(
+          const AppSettings(volume: TtsVolume.soft),
+        )['tts_volume'],
+        'low',
+      );
+      verify(() => mirror.send(settings)).called(1);
+    });
+    test('does not wait for or surface a failed mirror', () async {
+      final pending = Completer<Result<void>>();
+      when(() => mirror.send(any())).thenAnswer((_) => pending.future);
+      final repository = SettingsRepositoryImpl(
+        prefs: prefs,
+        mirror: mirror,
+        applyVoice: applied.add,
+      );
+      expect(await repository.save(const AppSettings()), isA<Success<void>>());
+      pending.complete(const FailureResult(NetworkFailure()));
+      await Future<void>.delayed(Duration.zero);
+      expect(prefs.readString(PrefsKeys.ttsRate), 'normal');
+      expect(applied.last, const AppSettings());
+    });
+    test(
+      'ignores thrown mirror failures and preserves ordered local writes',
+      () async {
+        when(() => mirror.send(any())).thenThrow(Exception('offline'));
+        final repository = SettingsRepositoryImpl(
+          prefs: prefs,
+          mirror: mirror,
+          applyVoice: applied.add,
+        );
+        await Future.wait([
+          repository.save(const AppSettings(rate: TtsRate.slow)),
+          repository.save(const AppSettings(rate: TtsRate.fast)),
+        ]);
+        await Future<void>.delayed(Duration.zero);
+        expect(prefs.readString(PrefsKeys.ttsRate), 'fast');
+      },
+    );
+  });
+}

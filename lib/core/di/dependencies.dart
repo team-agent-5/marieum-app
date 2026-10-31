@@ -14,17 +14,26 @@ import 'package:marieum_app/core/storage/secure_token_store.dart';
 import 'package:marieum_app/core/storage/sequence_store.dart';
 import 'package:marieum_app/core/storage/token_vault.dart';
 import 'package:marieum_app/core/tts/tts_port.dart';
+import 'package:marieum_app/core/tts/tts_service.dart';
 import 'package:marieum_app/features/auth/data/datasources/auth_data_source.dart';
 import 'package:marieum_app/features/auth/data/datasources/mock_auth_data_source.dart';
 import 'package:marieum_app/features/auth/data/datasources/remote_auth_data_source.dart';
 import 'package:marieum_app/features/auth/data/repositories/auth_repository_impl.dart';
+import 'package:marieum_app/features/auth/domain/entities/auth_status.dart';
 import 'package:marieum_app/features/auth/domain/repositories/auth_repository.dart';
 import 'package:marieum_app/features/auth/presentation/bloc/auth_bloc.dart';
+import 'package:marieum_app/features/history/data/history_data_source.dart';
+import 'package:marieum_app/features/history/data/history_repository_impl.dart';
+import 'package:marieum_app/features/history/domain/history.dart';
+import 'package:marieum_app/features/history/presentation/history_cubit.dart';
 import 'package:marieum_app/features/quick_phrase/data/datasources/preset_data_source.dart';
 import 'package:marieum_app/features/quick_phrase/data/datasources/quick_phrase_local_store.dart';
 import 'package:marieum_app/features/quick_phrase/data/repositories/quick_phrase_repository_impl.dart';
 import 'package:marieum_app/features/quick_phrase/domain/repositories/quick_phrase_repository.dart';
 import 'package:marieum_app/features/quick_phrase/presentation/bloc/quick_phrase_bloc.dart';
+import 'package:marieum_app/features/settings/data/settings_repository_impl.dart';
+import 'package:marieum_app/features/settings/domain/app_settings.dart';
+import 'package:marieum_app/features/settings/presentation/settings_cubit.dart';
 import 'package:marieum_app/features/speak/data/datasources/selection_log_queue.dart';
 import 'package:marieum_app/features/speak/data/datasources/speak_preferences_data_source.dart';
 import 'package:marieum_app/features/speak/data/datasources/utterance_data_source.dart';
@@ -130,6 +139,7 @@ Future<GetIt> configureDependencies({
         repository: dependencies<AuthRepository>(),
         refresh: dependencies<AuthRouterRefresh>(),
         createQuickPhraseBloc: dependencies.call<QuickPhraseBloc>,
+        createHistoryCubit: dependencies.call<HistoryCubit>,
         createPlaybackCubit: (request) => PlaybackCubit(
           request: request,
           tts: dependencies<TtsPort>(),
@@ -164,5 +174,43 @@ Future<GetIt> configureDependencies({
       ),
     );
   registerVoiceDependencies(dependencies);
+  dependencies
+    ..registerLazySingleton<HistoryDataSource>(
+      () => config.useMock
+          ? MockHistoryDataSource(
+              userId: () =>
+                  switch (dependencies<AuthRepository>().currentStatus) {
+                    AuthAuthenticated(:final profile) => profile.userId,
+                    _ => '',
+                  },
+            )
+          : RemoteHistoryDataSource(dependencies<ApiClient>()),
+    )
+    ..registerLazySingleton<HistoryRepository>(
+      () => HistoryRepositoryImpl(dependencies<HistoryDataSource>()),
+    )
+    ..registerFactory<HistoryCubit>(
+      () => HistoryCubit(dependencies<HistoryRepository>()),
+    )
+    ..registerLazySingleton<SettingsMirror>(
+      () => config.useMock
+          ? MockSettingsMirror()
+          : RemoteSettingsMirror(dependencies<ApiClient>()),
+    )
+    ..registerSingleton<SettingsRepository>(
+      SettingsRepositoryImpl(
+        prefs: prefs,
+        mirror: dependencies<SettingsMirror>(),
+        applyVoice: (settings) {
+          dependencies<TtsService>()
+            ..rate = settings.rate
+            ..volume = settings.volume;
+        },
+      ),
+    )
+    ..registerSingleton<SettingsCubit>(
+      SettingsCubit(dependencies<SettingsRepository>()),
+      dispose: (cubit) => cubit.close(),
+    );
   return dependencies;
 }

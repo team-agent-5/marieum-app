@@ -10,8 +10,11 @@ import 'package:marieum_app/features/auth/domain/entities/auth_status.dart';
 import 'package:marieum_app/features/auth/domain/entities/patient_profile.dart';
 import 'package:marieum_app/features/auth/domain/repositories/auth_repository.dart';
 import 'package:marieum_app/features/auth/presentation/bloc/auth_bloc.dart';
+import 'package:marieum_app/features/history/presentation/history_cubit.dart';
 import 'package:marieum_app/features/quick_phrase/domain/entities/quick_phrase.dart';
 import 'package:marieum_app/features/quick_phrase/presentation/bloc/quick_phrase_bloc.dart';
+import 'package:marieum_app/features/settings/domain/app_settings.dart';
+import 'package:marieum_app/features/settings/presentation/settings_cubit.dart';
 import 'package:marieum_app/features/speak/domain/entities/playback_request.dart';
 import 'package:marieum_app/features/speak/domain/entities/speak_mode.dart';
 import 'package:marieum_app/features/speak/presentation/bloc/utterance_bloc.dart';
@@ -36,6 +39,12 @@ class _MockPlaybackCubit extends MockCubit<PlaybackState>
 class _MockUtteranceBloc extends MockBloc<UtteranceEvent, UtteranceState>
     implements UtteranceBloc {}
 
+class _MockHistoryCubit extends MockCubit<HistoryState>
+    implements HistoryCubit {}
+
+class _MockSettingsCubit extends MockCubit<SettingsState>
+    implements SettingsCubit {}
+
 const testProfile = PatientProfile(
   id: '1',
   nickname: '김환자',
@@ -51,6 +60,8 @@ extension PumpApp on WidgetTester {
     AuthStatus status = const AuthAuthenticated(testProfile),
     bool settle = true,
     SpeakModeCubit? modeCubit,
+    SettingsCubit? settingsCubit,
+    HistoryCubit Function()? createHistoryCubit,
     QuickPhraseBloc Function()? createQuickPhraseBloc,
     PlaybackCubit Function(PlaybackRequest)? createPlaybackCubit,
     UtteranceBloc Function()? createUtteranceBloc,
@@ -78,6 +89,11 @@ extension PumpApp on WidgetTester {
       ).thenReturn(const SpeakModeState(SpeakMode.precise));
       when(() => mode.stream).thenAnswer((_) => const Stream.empty());
     }
+    final settings = settingsCubit ?? _MockSettingsCubit();
+    if (settingsCubit == null) {
+      when(() => settings.state).thenReturn(const SettingsState(AppSettings()));
+      when(() => settings.stream).thenAnswer((_) => const Stream.empty());
+    }
     final refresh = AuthRouterRefresh(bloc);
     addTearDown(refresh.dispose);
     final router = createAppRouter(
@@ -85,6 +101,18 @@ extension PumpApp on WidgetTester {
       authBloc: bloc,
       repository: authRepository,
       refresh: refresh,
+      createHistoryCubit:
+          createHistoryCubit ??
+          () {
+            final history = _MockHistoryCubit();
+            when(
+              () => history.state,
+            ).thenReturn(const HistoryState(status: HistoryStatus.success));
+            when(() => history.stream).thenAnswer((_) => const Stream.empty());
+            when(history.load).thenAnswer((_) async {});
+            when(history.close).thenAnswer((_) async {});
+            return history;
+          },
       createQuickPhraseBloc:
           createQuickPhraseBloc ??
           () {
@@ -125,6 +153,7 @@ extension PumpApp on WidgetTester {
         providers: [
           BlocProvider.value(value: bloc),
           BlocProvider.value(value: mode),
+          BlocProvider.value(value: settings),
         ],
         child: MarieumApp(
           router: router,
