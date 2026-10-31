@@ -26,11 +26,33 @@ class ProactiveSuggestionDialog extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (suggestion.candidate.reasonDisplay != null)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+                decoration: BoxDecoration(
+                  color: AppTokens.primarySoft,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Text(
+                  suggestion.candidate.text,
+                  style: const TextStyle(
+                    fontSize: 28,
+                    height: 1.3,
+                    fontWeight: FontWeight.w800,
+                    color: AppTokens.ink,
+                  ),
+                ),
+              ),
+              if (suggestion.candidate.reasonDisplay != null) ...[
+                const SizedBox(height: 10),
                 Text(
                   suggestion.candidate.reasonDisplay!,
                   style: AppTokens.copy,
                 ),
+              ],
               const SizedBox(height: 12),
               const Text('3초 동안 선택하지 않으면 닫혀요.', style: AppTokens.copy),
             ],
