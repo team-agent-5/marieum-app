@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
+import 'package:marieum_app/core/tts/cloud_voice.dart';
 import 'package:marieum_app/core/tts/tts_port.dart';
 import 'package:marieum_app/core/ui/adaptive/adaptive_segmented_control.dart';
 import 'package:marieum_app/core/ui/feature_panel.dart';
@@ -13,8 +14,13 @@ import 'package:marieum_app/features/settings/presentation/widgets/voice_picker_
 import 'package:marieum_app/features/speak/domain/entities/playback_request.dart';
 
 class SettingsView extends StatelessWidget {
-  const SettingsView({required this.settings, super.key});
+  const SettingsView({
+    required this.settings,
+    this.cloudVoiceAvailable = false,
+    super.key,
+  });
   final AppSettings settings;
+  final bool cloudVoiceAvailable;
 
   Future<void> _chooseVoice(BuildContext context) async {
     final cubit = context.read<SettingsCubit>();
@@ -63,6 +69,24 @@ class SettingsView extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (cloudVoiceAvailable) ...[
+                const _SettingLabel(
+                  icon: Icons.wc_rounded,
+                  text: '목소리',
+                ),
+                AdaptiveSegmentedControl<CloudVoice>(
+                  key: const ValueKey('cloud_voice'),
+                  value: settings.cloudVoice,
+                  children: {
+                    for (final voice in CloudVoice.values)
+                      voice: Text(voice.label),
+                  },
+                  onChanged: (value) => unawaited(
+                    context.read<SettingsCubit>().setCloudVoice(value),
+                  ),
+                ),
+                const Divider(height: 28),
+              ],
               Material(
                 color: Colors.transparent,
                 child: ListTile(
@@ -71,7 +95,9 @@ class SettingsView extends StatelessWidget {
                     Icons.record_voice_over_outlined,
                     color: AppTokens.primaryStrong,
                   ),
-                  title: const Text('목소리'),
+                  title: Text(
+                    cloudVoiceAvailable ? '인터넷이 안 될 때 목소리' : '목소리',
+                  ),
                   subtitle: Text(
                     settings.voiceId == null ? '자동(추천)' : '선택한 목소리',
                   ),

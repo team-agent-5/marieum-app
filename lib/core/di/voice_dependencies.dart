@@ -5,11 +5,19 @@ import 'package:marieum_app/core/audio/recording_engine.dart';
 import 'package:marieum_app/core/audio/voice_audio_session.dart';
 import 'package:marieum_app/core/haptics/haptics.dart';
 import 'package:marieum_app/core/speech/live_transcriber.dart';
+import 'package:marieum_app/core/tts/cloud_audio_player.dart';
+import 'package:marieum_app/core/tts/cloud_tts_cache.dart';
+import 'package:marieum_app/core/tts/cloud_tts_client.dart';
+import 'package:marieum_app/core/tts/cloud_tts_port.dart';
 import 'package:marieum_app/core/tts/tts_engine.dart';
 import 'package:marieum_app/core/tts/tts_port.dart';
 import 'package:marieum_app/core/tts/tts_service.dart';
 
-void registerVoiceDependencies(GetIt dependencies) {
+void registerVoiceDependencies(
+  GetIt dependencies, {
+  required String cloudApiKey,
+  required List<String> Function() warmTexts,
+}) {
   final platform = defaultTargetPlatform == TargetPlatform.iOS
       ? VoicePlatform.ios
       : VoicePlatform.android;
@@ -23,7 +31,16 @@ void registerVoiceDependencies(GetIt dependencies) {
       ),
       dispose: (service) => service.dispose(),
     )
-    ..registerLazySingleton<TtsPort>(() => dependencies<TtsService>())
+    ..registerLazySingleton<CloudTtsPort>(
+      () => CloudTtsPort(
+        client: CloudTtsClient(apiKey: cloudApiKey),
+        cache: CloudTtsCache(),
+        player: JustAudioCloudPlayer(),
+        device: dependencies<TtsService>(),
+        warmTexts: warmTexts,
+      ),
+    )
+    ..registerLazySingleton<TtsPort>(() => dependencies<CloudTtsPort>())
     ..registerFactory<Recorder>(
       () => Recorder(
         engine: PlatformRecordingEngine(),
