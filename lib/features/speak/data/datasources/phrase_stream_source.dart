@@ -23,7 +23,7 @@ class PhraseStreamSource implements LiveStream {
       Duration(seconds: 2),
       Duration(seconds: 4),
     ],
-    this.finalTimeout = const Duration(seconds: 8),
+    this.finalTimeout = const Duration(seconds: 3),
   }) : _connect = connect ?? WebSocketChannel.connect;
 
   /// Derives `wss://host/ws/phrase/stream` from the API address.

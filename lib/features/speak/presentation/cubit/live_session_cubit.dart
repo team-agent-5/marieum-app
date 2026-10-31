@@ -167,6 +167,9 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   final _audioBytes = <int, int>{};
   final _partials = <int, List<Transcription>>{};
 
+  /// Segments where the patient spoke again after the server ended early.
+  final _resumed = <int>{};
+
   /// The latest interim per segment and whether it repeated the one before.
   final _interims = <int, ({String text, bool settled})>{};
 
@@ -244,7 +247,10 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
         level >= state.threshold) {
       _lastInputVoiceAt = _now();
       final id = _activeId;
-      if (id != null) _lastVoiceAt[id] = _lastInputVoiceAt!;
+      if (id != null) {
+        _lastVoiceAt[id] = _lastInputVoiceAt!;
+        if (_partials.containsKey(id)) _resumed.add(id);
+      }
     }
     emit(
       state.copyWith(
@@ -329,6 +335,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
         if (identical(_active, utterance) && _capturing && _activeId == id) {
           if (event case LiveFinal(:final transcription)) {
             (_partials[id] ??= []).add(transcription);
+            _resumed.remove(id);
             _show(id, LiveSegmentStatus.interpreting, _joined(id));
           }
           AppLog.speak('live segment $id server ended early, continuing');
@@ -365,6 +372,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   /// The segment is over: combines what the server returned for it and
   /// shows, and if clear speaks, the sentence.
   void _settle(int id, LiveEvent event) {
+    _resumed.remove(id);
     final pieces = [
       ...?_partials.remove(id),
       if (event case LiveFinal(:final transcription)) transcription,
@@ -461,6 +469,16 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   void _finishActive() {
     final id = _activeId;
     if (id == null) return;
+    if (_partials.containsKey(id) && !_resumed.contains(id)) {
+      // Nothing was said after the server ended early, and the server does
+      // not answer a connection without speech; speak what it returned.
+      AppLog.speak('live segment $id nothing after early end, settling');
+      _active?.cancel();
+      _active = null;
+      _activeId = null;
+      _settle(id, const LiveUnclear());
+      return;
+    }
     if ((_audioBytes[id] ?? 0) == 0) {
       _active?.cancel();
       _lastVoiceAt.remove(id);
@@ -488,6 +506,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     _audioBytes.remove(id);
     _partials.remove(id);
     _interims.remove(id);
+    _resumed.remove(id);
     _remove(id);
   }
 
@@ -643,6 +662,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     _audioBytes.clear();
     _partials.clear();
     _interims.clear();
+    _resumed.clear();
     _spare?.cancel();
     _spare = null;
     _active?.cancel();
