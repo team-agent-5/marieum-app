@@ -33,10 +33,8 @@ class SettingsView extends StatelessWidget {
       constraints: BoxConstraints(
         maxHeight: MediaQuery.sizeOf(context).height * 0.8,
       ),
-      builder: (_) => BlocProvider.value(
-        value: cubit,
-        child: const VoicePickerSheet(),
-      ),
+      builder: (_) =>
+          BlocProvider.value(value: cubit, child: const VoicePickerSheet()),
     );
     if (choice == null || !context.mounted) return;
     if (choice.preview) {
@@ -70,10 +68,7 @@ class SettingsView extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               if (cloudVoiceAvailable) ...[
-                const _SettingLabel(
-                  icon: Icons.wc_rounded,
-                  text: '목소리',
-                ),
+                const _SettingLabel(icon: Icons.wc_rounded, text: '목소리'),
                 AdaptiveSegmentedControl<CloudVoice>(
                   key: const ValueKey('cloud_voice'),
                   value: settings.cloudVoice,
@@ -95,9 +90,7 @@ class SettingsView extends StatelessWidget {
                     Icons.record_voice_over_outlined,
                     color: AppTokens.primaryStrong,
                   ),
-                  title: Text(
-                    cloudVoiceAvailable ? '인터넷이 안 될 때 목소리' : '목소리',
-                  ),
+                  title: Text(cloudVoiceAvailable ? '인터넷이 안 될 때 목소리' : '목소리'),
                   subtitle: Text(
                     settings.voiceId == null ? '자동(추천)' : '선택한 목소리',
                   ),
@@ -106,10 +99,7 @@ class SettingsView extends StatelessWidget {
                 ),
               ),
               const Divider(height: 28),
-              const _SettingLabel(
-                icon: Icons.speed_rounded,
-                text: '말하는 속도',
-              ),
+              const _SettingLabel(icon: Icons.speed_rounded, text: '말하는 속도'),
               AdaptiveSegmentedControl<TtsRate>(
                 value: settings.rate,
                 children: const {
@@ -132,9 +122,8 @@ class SettingsView extends StatelessWidget {
                   TtsVolume.normal: Text('보통'),
                   TtsVolume.loud: Text('크게'),
                 },
-                onChanged: (value) => unawaited(
-                  context.read<SettingsCubit>().setVolume(value),
-                ),
+                onChanged: (value) =>
+                    unawaited(context.read<SettingsCubit>().setVolume(value)),
               ),
               const SizedBox(height: 14),
               FilledButton.tonal(

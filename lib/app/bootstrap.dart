@@ -13,10 +13,9 @@ import 'package:marieum_app/features/speak/presentation/cubit/speak_mode_cubit.d
 Future<void> bootstrap() async {
   final dependencies = await configureDependencies();
   LicenseRegistry.addLicense(() async* {
-    yield LicenseEntryWithLineBreaks(
-      ['Pretendard'],
-      await rootBundle.loadString('assets/fonts/OFL.txt'),
-    );
+    yield LicenseEntryWithLineBreaks([
+      'Pretendard',
+    ], await rootBundle.loadString('assets/fonts/OFL.txt'));
   });
   runApp(
     MultiBlocProvider(
@@ -27,9 +26,7 @@ Future<void> bootstrap() async {
       ],
       child: RepositoryProvider<HistoryRepository>.value(
         value: dependencies<HistoryRepository>(),
-        child: MarieumApp(
-          router: dependencies<GoRouter>(),
-        ),
+        child: MarieumApp(router: dependencies<GoRouter>()),
       ),
     ),
   );

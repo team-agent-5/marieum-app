@@ -183,11 +183,7 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
     on<UtteranceButtonPressed>(_onButton);
     on<UtteranceHoldStarted>((event, emit) async {
       if (state.phase == UtterancePhase.idle) {
-        await _startRecording(
-          event.mode,
-          emit,
-          reaskCount: state.reaskCount,
-        );
+        await _startRecording(event.mode, emit, reaskCount: state.reaskCount);
       }
     });
     on<UtteranceHoldEnded>(_onHoldEnded);

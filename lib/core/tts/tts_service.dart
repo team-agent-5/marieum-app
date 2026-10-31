@@ -81,9 +81,7 @@ class TtsService implements PlaybackTtsPort, TtsVoiceSelector {
   Future<bool> isKoreanAvailable() {
     if (_koreanAvailable) return Future.value(true);
     return _availabilityCheck ??=
-        Future<bool>.sync(
-              () => _engine.isLanguageAvailable('ko-KR'),
-            )
+        Future<bool>.sync(() => _engine.isLanguageAvailable('ko-KR'))
             .then((available) {
               _koreanAvailable = available;
               return available;

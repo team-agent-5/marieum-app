@@ -342,11 +342,7 @@ class _HistoryState extends State<_History> {
 }
 
 class _HistoryLine extends StatelessWidget {
-  const _HistoryLine({
-    required this.segment,
-    required this.playing,
-    super.key,
-  });
+  const _HistoryLine({required this.segment, required this.playing, super.key});
 
   final LiveSegment segment;
   final bool playing;
@@ -373,9 +369,8 @@ class _HistoryLine extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(10),
         onTap: done
-            ? () => unawaited(
-                context.read<LiveSessionCubit>().replay(segment.id),
-              )
+            ? () =>
+                  unawaited(context.read<LiveSessionCubit>().replay(segment.id))
             : null,
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 44),
@@ -461,10 +456,7 @@ class _Current extends StatelessWidget {
         alignment: Alignment.centerLeft,
         children: [...previous, ?current],
       ),
-      child: KeyedSubtree(
-        key: ValueKey(segment.id),
-        child: _content(context),
-      ),
+      child: KeyedSubtree(key: ValueKey(segment.id), child: _content(context)),
     );
   }
 
@@ -480,10 +472,7 @@ class _Current extends StatelessWidget {
           child: CircularProgressIndicator(strokeWidth: 2.5),
         ),
         SizedBox(width: 12),
-        Text(
-          '해석하고 있어요',
-          style: TextStyle(fontSize: 18, color: AppTokens.ink2),
-        ),
+        Text('해석하고 있어요', style: TextStyle(fontSize: 18, color: AppTokens.ink2)),
       ],
     ),
     LiveSegmentStatus.done => Semantics(

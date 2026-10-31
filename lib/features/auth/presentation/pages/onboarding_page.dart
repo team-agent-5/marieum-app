@@ -61,10 +61,7 @@ class _OnboardingViewState extends State<OnboardingView> {
       '말하기 버튼으로 말씀하세요',
       '정확도 모드는 버튼을 누르는 동안 말하고, 실시간 모드는 녹음 화면에서 말하는 동안 글자로 보여드려요.',
     ),
-    (
-      '알맞은 문장을 골라요',
-      '또렷하게 들리면 한 문장을, 애매하면 비슷한 말 3개를 추천 이유와 함께 보여드려요.',
-    ),
+    ('알맞은 문장을 골라요', '또렷하게 들리면 한 문장을, 애매하면 비슷한 말 3개를 추천 이유와 함께 보여드려요.'),
     ('또렷한 소리로 자동 재생돼요', '선택한 문장을 큰 글자로 보여주고 옆 사람에게 바로 들려드려요.'),
   ];
   void _closeReview() {
@@ -162,9 +159,7 @@ class _OnboardingViewState extends State<OnboardingView> {
                           Container(
                             width: i == _step ? 24 : 8,
                             height: 8,
-                            margin: const EdgeInsets.symmetric(
-                              horizontal: 3.5,
-                            ),
+                            margin: const EdgeInsets.symmetric(horizontal: 3.5),
                             decoration: BoxDecoration(
                               color: i == _step
                                   ? AppTokens.primaryStrong

@@ -40,10 +40,7 @@ class VoicePickerSheet extends StatelessWidget {
                 ),
               ],
             ),
-            _VoiceOption(
-              name: '자동(추천)',
-              selected: selectedId == null,
-            ),
+            _VoiceOption(name: '자동(추천)', selected: selectedId == null),
             if (voices == null)
               const Padding(
                 padding: EdgeInsets.all(18),
@@ -142,9 +139,8 @@ class _VoiceOption extends StatelessWidget {
           ),
           TextButton(
             style: TextButton.styleFrom(minimumSize: const Size(76, 48)),
-            onPressed: () => Navigator.of(context).pop(
-              VoiceChoice(id, preview: true),
-            ),
+            onPressed: () =>
+                Navigator.of(context).pop(VoiceChoice(id, preview: true)),
             child: Semantics(
               label: '$name 미리듣기',
               excludeSemantics: true,

@@ -423,14 +423,10 @@ class _Failed extends StatelessWidget {
     final settings = failure is PermissionFailure && failure.permanent;
     final (icon, title) = switch (failure) {
       PermissionFailure() => (Icons.mic_off_rounded, '마이크를 쓸 수 없어요'),
-      NetworkFailure() || TimeoutFailure() => (
-        Icons.wifi_off_rounded,
-        '서버에 연결하지 못했어요',
-      ),
-      TtsFailure() || TtsUnavailableFailure() => (
-        Icons.volume_off_rounded,
-        '소리를 재생하지 못했어요',
-      ),
+      NetworkFailure() ||
+      TimeoutFailure() => (Icons.wifi_off_rounded, '서버에 연결하지 못했어요'),
+      TtsFailure() ||
+      TtsUnavailableFailure() => (Icons.volume_off_rounded, '소리를 재생하지 못했어요'),
       _ => (Icons.error_outline_rounded, '말씀을 전달하지 못했어요'),
     };
     return Column(
@@ -577,11 +573,7 @@ class _Recovery extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 6),
-        Text(
-          body,
-          textAlign: TextAlign.center,
-          style: AppTokens.copy,
-        ),
+        Text(body, textAlign: TextAlign.center, style: AppTokens.copy),
       ],
     ),
   );
