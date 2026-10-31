@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
@@ -216,11 +218,15 @@ Future<GetIt> configureDependencies({
           dependencies<TtsService>()
             ..rate = settings.rate
             ..volume = settings.volume;
+          unawaited(dependencies<TtsService>().selectVoice(settings.voiceId));
         },
       ),
     )
     ..registerSingleton<SettingsCubit>(
-      SettingsCubit(dependencies<SettingsRepository>()),
+      SettingsCubit(
+        dependencies<SettingsRepository>(),
+        voices: dependencies<TtsService>(),
+      ),
       dispose: (cubit) => cubit.close(),
     );
   return dependencies;

@@ -6,6 +6,7 @@ import 'package:marieum_app/core/error/result.dart';
 import 'package:marieum_app/core/tts/tts_engine.dart';
 import 'package:marieum_app/core/tts/tts_port.dart';
 import 'package:marieum_app/core/tts/tts_service.dart';
+import 'package:marieum_app/core/tts/tts_voice.dart';
 import 'package:mocktail/mocktail.dart';
 
 class _MockEngine extends Mock implements TtsEngine {}
@@ -17,9 +18,22 @@ void main() {
     late _MockEngine engine;
     late _MockSession session;
     late TtsService service;
+    setUpAll(
+      () => registerFallbackValue(
+        const TtsVoice(
+          id: 'test',
+          name: 'test',
+          locale: 'ko-KR',
+          quality: TtsVoiceQuality.normal,
+          requiresNetwork: false,
+        ),
+      ),
+    );
     setUp(() {
       engine = _MockEngine();
       session = _MockSession();
+      when(engine.koreanVoices).thenAnswer((_) async => []);
+      when(() => engine.setVoice(any())).thenAnswer((_) async {});
       when(
         () => engine.isLanguageAvailable('ko-KR'),
       ).thenAnswer((_) async => true);
@@ -173,5 +187,146 @@ void main() {
         expect(await first, isA<Success<void>>());
       },
     );
+    group('voice selection', () {
+      TtsVoice voice(
+        String id,
+        TtsVoiceQuality quality, {
+        bool network = false,
+      }) => TtsVoice(
+        id: id,
+        name: id,
+        locale: 'ko-KR',
+        quality: quality,
+        requiresNetwork: network,
+      );
+
+      for (final quality in TtsVoiceQuality.values) {
+        test('prefers $quality over every lower offline quality', () async {
+          final candidates = [
+            for (final item in TtsVoiceQuality.values.reversed)
+              if (item.index >= quality.index) voice(item.name, item),
+          ];
+          when(engine.koreanVoices).thenAnswer((_) async => candidates);
+          await service.availableVoices();
+          expect(service.currentVoice?.quality, quality);
+        });
+      }
+
+      test(
+        'places network voices after offline voices even at higher quality',
+        () async {
+          final online = voice('온라인', TtsVoiceQuality.premium, network: true);
+          final offline = voice('오프라인', TtsVoiceQuality.normal);
+          when(engine.koreanVoices).thenAnswer((_) async => [online, offline]);
+          await service.speak('물 주세요');
+          expect(service.currentVoice, offline);
+          verify(() => engine.setVoice(offline)).called(1);
+        },
+      );
+
+      test('prefers an offline voice within the same quality', () async {
+        final online = voice('온라인', TtsVoiceQuality.enhanced, network: true);
+        final offline = voice('오프라인', TtsVoiceQuality.enhanced);
+        when(engine.koreanVoices).thenAnswer((_) async => [online, offline]);
+        await service.availableVoices();
+        expect(service.currentVoice, offline);
+      });
+
+      test(
+        'honors a user choice including a network voice before auto ranking',
+        () async {
+          final preferred = voice('선택', TtsVoiceQuality.normal, network: true);
+          when(engine.koreanVoices).thenAnswer(
+            (_) async => [
+              voice('자동', TtsVoiceQuality.premium),
+              preferred,
+            ],
+          );
+          await service.selectVoice(preferred.id);
+          verifyNever(engine.koreanVoices);
+          await service.speak('물 주세요');
+          expect(service.currentVoice, preferred);
+          verify(() => engine.setVoice(preferred)).called(1);
+        },
+      );
+
+      test(
+        'falls back to auto when the persisted voice has been removed',
+        () async {
+          final auto = voice('자동', TtsVoiceQuality.enhanced);
+          when(engine.koreanVoices).thenAnswer((_) async => [auto]);
+          await service.selectVoice('삭제된 음성');
+          await service.speak('물 주세요');
+          expect(service.currentVoice, auto);
+          verify(() => engine.setVoice(auto)).called(1);
+        },
+      );
+
+      test(
+        'caches the list and updates selection '
+        'only when the choice changes',
+        () async {
+          final auto = voice('자동', TtsVoiceQuality.premium);
+          final preferred = voice('선택', TtsVoiceQuality.normal);
+          when(engine.koreanVoices).thenAnswer((_) async => [auto, preferred]);
+          await Future.wait([
+            service.availableVoices(),
+            service.availableVoices(),
+          ]);
+          await service.selectVoice(preferred.id);
+          expect(service.currentVoice, preferred);
+          await service.speak('첫 재생');
+          await service.selectVoice(null);
+          await service.speak('둘째 재생');
+          expect(service.currentVoice, auto);
+          verify(engine.koreanVoices).called(1);
+          verifyInOrder([
+            () => engine.configure(rate: 0.5, volume: 0.8),
+            () => engine.setVoice(preferred),
+            () => engine.speak('첫 재생'),
+            () => engine.configure(rate: 0.5, volume: 0.8),
+            () => engine.setVoice(auto),
+            () => engine.speak('둘째 재생'),
+          ]);
+        },
+      );
+
+      test('continues speech when setting the selected voice fails', () async {
+        when(
+          engine.koreanVoices,
+        ).thenAnswer((_) async => [voice('목소리', TtsVoiceQuality.high)]);
+        when(
+          () => engine.setVoice(any()),
+        ).thenThrow(Exception('voice unavailable'));
+        expect(await service.speak('물 주세요'), isA<Success<void>>());
+        verify(() => engine.speak('물 주세요')).called(1);
+      });
+
+      test(
+        'uses the default voice when enumeration fails or returns nothing',
+        () async {
+          when(engine.koreanVoices).thenThrow(Exception('unsupported'));
+          expect(await service.speak('물 주세요'), isA<Success<void>>());
+          expect(service.currentVoice, isNull);
+          verifyNever(() => engine.setVoice(any()));
+        },
+      );
+
+      test(
+        'ignores a late voice list after stop without starting speech',
+        () async {
+          final pending = Completer<List<TtsVoice>>();
+          when(engine.koreanVoices).thenAnswer((_) => pending.future);
+          final speaking = service.speak('물 주세요');
+          await Future<void>.delayed(Duration.zero);
+          await service.stop();
+          pending.complete([voice('목소리', TtsVoiceQuality.premium)]);
+          await speaking;
+          await Future<void>.delayed(Duration.zero);
+          verifyNever(() => engine.speak(any()));
+          verifyNever(() => engine.setVoice(any()));
+        },
+      );
+    });
   });
 }
