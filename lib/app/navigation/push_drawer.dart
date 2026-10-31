@@ -23,6 +23,7 @@ class PushDrawer extends StatefulWidget {
   static const overlap = 8.0;
   static const cornerRadius = 28.0;
   static const drawerLag = 26.0;
+  static const backdrop = Color(0xFFDEE9FA);
 
   static double drawerWidthFor(double screenWidth) =>
       (screenWidth * 0.8).clamp(280.0, 320.0);
@@ -100,70 +101,73 @@ class _PushDrawerState extends State<PushDrawer>
             builder: (context, _) {
               final t = PushDrawer.curve.transform(_controller.value);
               final radius = Radius.circular(PushDrawer.cornerRadius * t);
-              return Stack(
-                children: [
-                  if (!_controller.isDismissed)
-                    Positioned(
-                      left: 0,
-                      top: 0,
-                      bottom: 0,
-                      width: drawerWidth,
-                      child: Transform.translate(
-                        offset: Offset(-PushDrawer.drawerLag * (1 - t), 0),
-                        child: Opacity(
-                          opacity: 0.55 + 0.45 * t,
-                          child: Semantics(
-                            label: '앱 메뉴',
-                            container: true,
-                            explicitChildNodes: true,
-                            child: widget.drawer,
+              return Material(
+                color: PushDrawer.backdrop,
+                child: Stack(
+                  children: [
+                    if (!_controller.isDismissed)
+                      Positioned(
+                        left: 0,
+                        top: 0,
+                        bottom: 0,
+                        width: drawerWidth,
+                        child: Transform.translate(
+                          offset: Offset(-PushDrawer.drawerLag * (1 - t), 0),
+                          child: Opacity(
+                            opacity: 0.55 + 0.45 * t,
+                            child: Semantics(
+                              label: '앱 메뉴',
+                              container: true,
+                              explicitChildNodes: true,
+                              child: widget.drawer,
+                            ),
+                          ),
+                        ),
+                      ),
+                    Transform.translate(
+                      key: const ValueKey('push_drawer_pane'),
+                      offset: Offset(shift * t, 0),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.horizontal(left: radius),
+                          boxShadow: t == 0
+                              ? null
+                              : [
+                                  BoxShadow(
+                                    color: const Color(
+                                      0xFF17233D,
+                                    ).withValues(alpha: 0.10 * t),
+                                    offset: const Offset(-10, 0),
+                                    blurRadius: 24,
+                                  ),
+                                ],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.horizontal(left: radius),
+                          child: Stack(
+                            children: [
+                              ExcludeSemantics(
+                                excluding: _isOpen,
+                                child: AbsorbPointer(
+                                  absorbing: _isOpen,
+                                  child: widget.child,
+                                ),
+                              ),
+                              if (_isOpen)
+                                Positioned.fill(
+                                  child: GestureDetector(
+                                    key: const ValueKey('push_drawer_close'),
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: close,
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                       ),
                     ),
-                  Transform.translate(
-                    key: const ValueKey('push_drawer_pane'),
-                    offset: Offset(shift * t, 0),
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.horizontal(left: radius),
-                        boxShadow: t == 0
-                            ? null
-                            : [
-                                BoxShadow(
-                                  color: const Color(
-                                    0xFF17233D,
-                                  ).withValues(alpha: 0.10 * t),
-                                  offset: const Offset(-10, 0),
-                                  blurRadius: 24,
-                                ),
-                              ],
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.horizontal(left: radius),
-                        child: Stack(
-                          children: [
-                            ExcludeSemantics(
-                              excluding: _isOpen,
-                              child: AbsorbPointer(
-                                absorbing: _isOpen,
-                                child: widget.child,
-                              ),
-                            ),
-                            if (_isOpen)
-                              Positioned.fill(
-                                child: GestureDetector(
-                                  key: const ValueKey('push_drawer_close'),
-                                  behavior: HitTestBehavior.opaque,
-                                  onTap: close,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               );
             },
           );
