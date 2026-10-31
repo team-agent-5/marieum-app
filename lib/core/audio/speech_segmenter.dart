@@ -2,9 +2,30 @@ import 'dart:typed_data';
 
 import 'package:marieum_app/core/audio/recorder.dart';
 
+sealed class SegmentSignal {
+  const SegmentSignal(this.audio);
+  final Uint8List audio;
+}
+
+/// Voice began; [audio] includes the lead-in kept before it.
+final class SegmentStarted extends SegmentSignal {
+  const SegmentStarted(super.audio);
+}
+
+final class SegmentContinued extends SegmentSignal {
+  const SegmentContinued(super.audio);
+}
+
+/// A pause or the length limit ended the segment. [kept] is false when it
+/// was too short to be speech.
+final class SegmentEnded extends SegmentSignal {
+  const SegmentEnded(super.audio, {required this.kept});
+  final bool kept;
+}
+
 /// Splits a continuous PCM16 16 kHz mono stream into utterances: a segment
-/// starts when the input gets loud and ends after a pause, so each one can
-/// be interpreted while the patient keeps talking.
+/// starts when the input gets loud and ends after a pause, and its audio is
+/// handed on as it arrives so it can be streamed while the patient talks.
 class SpeechSegmenter {
   SpeechSegmenter({
     this.threshold = defaultThreshold,
@@ -29,16 +50,17 @@ class SpeechSegmenter {
 
   final _before = <Uint8List>[];
   var _beforeBytes = 0;
-  final _segment = BytesBuilder(copy: false);
   var _inSegment = false;
+  var _lengthMs = 0;
   var _speechMs = 0;
   var _silenceMs = 0;
 
   /// Whether the current input is voice.
   bool get hearing => _inSegment && _silenceMs == 0;
 
-  /// Feeds one chunk; returns a finished segment when a pause ends one.
-  Uint8List? add(Uint8List chunk, {double? level}) {
+  /// Feeds one chunk; returns what it means for the segment, or null while
+  /// there is no voice.
+  SegmentSignal? add(Uint8List chunk, {double? level}) {
     final loud = (level ?? pcmLevel(chunk)) >= threshold;
     final chunkMs = chunk.length ~/ _bytesPerMs;
     if (!_inSegment) {
@@ -46,40 +68,40 @@ class SpeechSegmenter {
         _keepBefore(chunk);
         return null;
       }
-      _inSegment = true;
+      final audio = BytesBuilder(copy: false);
       _before
-        ..forEach(_segment.add)
+        ..forEach(audio.add)
         ..clear();
+      audio.add(chunk);
       _beforeBytes = 0;
-      _segment.add(chunk);
+      _inSegment = true;
+      _lengthMs = audio.length ~/ _bytesPerMs;
       _speechMs = chunkMs;
       _silenceMs = 0;
-      return null;
+      return SegmentStarted(audio.takeBytes());
     }
-    _segment.add(chunk);
+    _lengthMs += chunkMs;
     if (loud) {
       _speechMs += chunkMs;
       _silenceMs = 0;
     } else {
       _silenceMs += chunkMs;
     }
-    final lengthMs = _segment.length ~/ _bytesPerMs;
     if (_silenceMs < endSilence.inMilliseconds &&
-        lengthMs < maxSegment.inMilliseconds) {
-      return null;
+        _lengthMs < maxSegment.inMilliseconds) {
+      return SegmentContinued(chunk);
     }
-    final enough = _speechMs >= minSpeech.inMilliseconds;
-    final bytes = _segment.takeBytes();
+    final kept = _speechMs >= minSpeech.inMilliseconds;
     reset();
-    return enough ? bytes : null;
+    return SegmentEnded(chunk, kept: kept);
   }
 
   /// Drops anything in progress, e.g. while the app itself is speaking.
   void reset() {
-    _segment.clear();
     _before.clear();
     _beforeBytes = 0;
     _inSegment = false;
+    _lengthMs = 0;
     _speechMs = 0;
     _silenceMs = 0;
   }

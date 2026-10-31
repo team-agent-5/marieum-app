@@ -363,7 +363,10 @@ class _HistoryLine extends StatelessWidget {
         '${segment.at.minute.toString().padLeft(2, '0')}';
     final (text, color) = switch (segment.status) {
       LiveSegmentStatus.done => (segment.text, AppTokens.ink2),
-      LiveSegmentStatus.interpreting => ('해석하고 있어요', AppTokens.ink3),
+      LiveSegmentStatus.interpreting => (
+        segment.text.isEmpty ? '해석하고 있어요' : segment.text,
+        AppTokens.ink3,
+      ),
       LiveSegmentStatus.unclear => ('잘 알아듣지 못했어요', AppTokens.ink3),
       LiveSegmentStatus.failed => (segment.text, AppTokens.danger),
     };
@@ -470,6 +473,10 @@ class _Current extends StatelessWidget {
   }
 
   Widget _content(BuildContext context) => switch (segment.status) {
+    LiveSegmentStatus.interpreting when segment.text.isNotEmpty => Semantics(
+      liveRegion: true,
+      child: Text(segment.text, style: _style.copyWith(color: AppTokens.ink2)),
+    ),
     LiveSegmentStatus.interpreting => const Row(
       children: [
         SizedBox.square(
