@@ -59,15 +59,10 @@ class LiveSessionView extends StatelessWidget {
                         levels: state.levels,
                         hearing: state.hearing,
                         threshold: state.threshold,
-                        muted: state.playing,
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        state.playing
-                            ? '전달하는 동안은 잠시 듣지 않아요'
-                            : state.hearing
-                            ? '목소리가 들려요'
-                            : '말씀하시면 바로 해석해요',
+                        state.hearing ? '목소리가 들려요' : '말씀하시면 바로 해석해요',
                         textAlign: TextAlign.center,
                         style: const TextStyle(
                           fontSize: 14,
@@ -544,14 +539,12 @@ class InputSignal extends StatelessWidget {
   const InputSignal({
     required this.levels,
     required this.hearing,
-    required this.muted,
     this.threshold = SpeechSegmenter.defaultThreshold,
     super.key,
   });
 
   final List<double> levels;
   final bool hearing;
-  final bool muted;
   final double threshold;
 
   static const height = 64.0;
@@ -579,9 +572,7 @@ class InputSignal extends StatelessWidget {
                 margin: const EdgeInsets.symmetric(horizontal: 2),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(3),
-                  color: muted
-                      ? AppTokens.line
-                      : level >= threshold
+                  color: level >= threshold
                       ? AppTokens.primary
                       : AppTokens.lineStrong,
                 ),
