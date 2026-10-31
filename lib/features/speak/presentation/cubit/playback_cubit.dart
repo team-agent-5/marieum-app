@@ -4,8 +4,11 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:marieum_app/core/error/failure.dart';
 import 'package:marieum_app/core/error/result.dart';
 import 'package:marieum_app/core/haptics/haptics.dart';
+import 'package:marieum_app/core/log/app_log.dart';
 import 'package:marieum_app/core/tts/tts_port.dart';
 import 'package:marieum_app/features/speak/domain/entities/playback_request.dart';
+import 'package:marieum_app/features/speak/domain/entities/utterance.dart';
+import 'package:marieum_app/features/speak/domain/repositories/utterance_repository.dart';
 
 enum PlaybackStatus { initial, playing, completed, failed, closed }
 
@@ -14,12 +17,22 @@ class PlaybackState extends Equatable {
     required this.text,
     this.status = PlaybackStatus.initial,
     this.failure,
+    this.suggestion,
+    this.suggestionPending = false,
   });
   final String text;
   final PlaybackStatus status;
   final Failure? failure;
+  final ProactiveSuggestion? suggestion;
+  final bool suggestionPending;
   @override
-  List<Object?> get props => [text, status, failure];
+  List<Object?> get props => [
+    text,
+    status,
+    failure,
+    suggestion,
+    suggestionPending,
+  ];
 }
 
 class PlaybackCubit extends Cubit<PlaybackState> {
@@ -27,13 +40,23 @@ class PlaybackCubit extends Cubit<PlaybackState> {
     required PlaybackRequest request,
     required this._tts,
     required this._haptics,
-  }) : super(PlaybackState(text: request.text));
+    this.repository,
+    DateTime Function()? now,
+  }) : _request = request,
+       _now = now ?? DateTime.now,
+       super(PlaybackState(text: request.text));
 
   static const returnDelay = Duration(seconds: 2);
+  static const suggestionDelay = Duration(seconds: 3);
 
   final TtsPort _tts;
   final VoiceHaptics _haptics;
+  final PlaybackRequest _request;
+  final UtteranceRepository? repository;
+  final DateTime Function() _now;
   Timer? _returnTimer;
+  Timer? _suggestionTimer;
+  DateTime? _suggestionShownAt;
   int _revision = 0;
   bool _started = false;
   bool _closing = false;
@@ -56,12 +79,43 @@ class PlaybackCubit extends Cubit<PlaybackState> {
   Future<void> start() async {
     if (_started || _closing || isClosed) return;
     _started = true;
+    final suggestion = _request.suggestions?.proactiveSuggestion;
+    if (suggestion != null) {
+      _suggestionShownAt = _now();
+      _suggestionTimer = Timer(suggestionDelay, declineSuggestion);
+    }
+    await _playText(state.text, suggestionPending: suggestion != null);
+  }
+
+  void _update(
+    PlaybackStatus status, {
+    String? text,
+    Failure? failure,
+    bool? suggestionPending,
+  }) {
+    emit(
+      PlaybackState(
+        text: text ?? state.text,
+        status: status,
+        failure: failure,
+        suggestion: _request.suggestions?.proactiveSuggestion,
+        suggestionPending: suggestionPending ?? state.suggestionPending,
+      ),
+    );
+  }
+
+  Future<void> _playText(String text, {bool? suggestionPending}) async {
     final revision = ++_revision;
-    emit(PlaybackState(text: state.text, status: PlaybackStatus.playing));
+    _endFeedbackSent = false;
+    _update(
+      PlaybackStatus.playing,
+      text: text,
+      suggestionPending: suggestionPending,
+    );
     unawaited(_feedback(VoiceHaptic.playbackStarted));
     Result<void> result;
     try {
-      result = await _tts.speak(state.text);
+      result = await _tts.speak(text);
     } on Object {
       result = const FailureResult(TtsFailure('음성을 재생하지 못했습니다.'));
     }
@@ -69,30 +123,68 @@ class PlaybackCubit extends Cubit<PlaybackState> {
     _endFeedback();
     switch (result) {
       case Success():
-        emit(PlaybackState(text: state.text, status: PlaybackStatus.completed));
-        _returnTimer = Timer(returnDelay, () {
-          if (!_closing && !isClosed && revision == _revision) {
-            emit(
-              PlaybackState(text: state.text, status: PlaybackStatus.closed),
-            );
-          }
-        });
+        _update(PlaybackStatus.completed);
+        if (!state.suggestionPending) _scheduleReturn();
       case FailureResult(:final failure):
-        emit(
-          PlaybackState(
-            text: state.text,
-            status: PlaybackStatus.failed,
-            failure: failure,
-          ),
-        );
+        _update(PlaybackStatus.failed, failure: failure);
     }
+  }
+
+  void _scheduleReturn() {
+    _returnTimer?.cancel();
+    _returnTimer = Timer(returnDelay, () {
+      if (!_closing && !isClosed && !state.suggestionPending) {
+        _update(PlaybackStatus.closed);
+      }
+    });
+  }
+
+  void declineSuggestion() {
+    if (_closing || isClosed || !state.suggestionPending) return;
+    _suggestionTimer?.cancel();
+    _update(state.status, failure: state.failure, suggestionPending: false);
+    if (state.status == PlaybackStatus.completed) _scheduleReturn();
+  }
+
+  Future<void> acceptSuggestion() async {
+    final suggestion = state.suggestion;
+    if (_closing ||
+        isClosed ||
+        !state.suggestionPending ||
+        suggestion == null) {
+      return;
+    }
+    _suggestionTimer?.cancel();
+    _returnTimer?.cancel();
+    ++_revision;
+    final shouldStop = state.status == PlaybackStatus.playing;
+    _update(state.status, failure: state.failure, suggestionPending: false);
+    final transcription = _request.transcription;
+    final suggestions = _request.suggestions;
+    if (transcription != null && suggestions != null) {
+      try {
+        repository?.logSelected(
+          transcription: transcription,
+          suggestions: suggestions,
+          candidate: suggestion.candidate,
+          latency: _now().difference(_suggestionShownAt ?? _now()),
+        );
+      } on Object catch (error) {
+        AppLog.speak('proactive log unavailable ${error.runtimeType}');
+      }
+    }
+    if (shouldStop) {
+      await _stopTts();
+      _endFeedback();
+    }
+    if (_closing || isClosed || state.status == PlaybackStatus.closed) return;
+    _stopOperation = null;
+    await _playText(suggestion.candidate.text, suggestionPending: false);
   }
 
   Future<void> retry() async {
     if (state.status != PlaybackStatus.failed || _closing || isClosed) return;
-    _started = false;
-    _endFeedbackSent = false;
-    await start();
+    await _playText(state.text);
   }
 
   Future<void> _stopTts() => _stopOperation ??= () async {
@@ -106,6 +198,7 @@ class PlaybackCubit extends Cubit<PlaybackState> {
     if (_closing || isClosed || state.status == PlaybackStatus.closed) return;
     ++_revision;
     _returnTimer?.cancel();
+    _suggestionTimer?.cancel();
     _endFeedback();
     emit(PlaybackState(text: state.text, status: PlaybackStatus.closed));
     await _stopTts();
@@ -116,6 +209,7 @@ class PlaybackCubit extends Cubit<PlaybackState> {
     _closing = true;
     ++_revision;
     _returnTimer?.cancel();
+    _suggestionTimer?.cancel();
     _endFeedback();
     await _stopTts();
     return super.close();

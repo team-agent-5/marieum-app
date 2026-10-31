@@ -46,6 +46,7 @@ import 'package:marieum_app/features/speak/data/datasources/speak_preferences_da
 import 'package:marieum_app/features/speak/data/datasources/utterance_data_source.dart';
 import 'package:marieum_app/features/speak/data/repositories/speak_mode_repository_impl.dart';
 import 'package:marieum_app/features/speak/data/repositories/utterance_repository_impl.dart';
+import 'package:marieum_app/features/speak/domain/entities/playback_request.dart';
 import 'package:marieum_app/features/speak/domain/repositories/live_stream.dart';
 import 'package:marieum_app/features/speak/domain/repositories/speak_mode_repository.dart';
 import 'package:marieum_app/features/speak/domain/repositories/utterance_repository.dart';
@@ -147,7 +148,10 @@ Future<GetIt> configureDependencies({
         readLoginUserId: () => prefs.readString(PrefsKeys.loginUserId) ?? '',
         createPlaybackCubit: (request) => PlaybackCubit(
           request: request,
-          tts: dependencies<TtsPort>(),
+          tts: request.origin == PlaybackOrigin.utterance
+              ? dependencies<TtsService>()
+              : dependencies<TtsPort>(),
+          repository: dependencies<UtteranceRepository>(),
           haptics: dependencies<VoiceHaptics>(),
         ),
         createUtteranceBloc: dependencies.call<UtteranceBloc>,
@@ -160,7 +164,6 @@ Future<GetIt> configureDependencies({
     )
     ..registerLazySingleton<UtteranceRepository>(
       () => UtteranceRepositoryImpl(
-        prefetchSpeech: (texts) => dependencies<CloudTtsPort>().prefetch(texts),
         source: dependencies<UtteranceDataSource>(),
         sequence: dependencies<SequenceStore>(),
         queue: SelectionLogQueue(

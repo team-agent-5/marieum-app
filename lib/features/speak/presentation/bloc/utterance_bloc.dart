@@ -110,6 +110,7 @@ class UtteranceState extends Equatable {
     this.spokenText,
     this.notice,
     this.playbackId = 0,
+    this.retryMessage,
   });
 
   final UtterancePhase phase;
@@ -130,6 +131,7 @@ class UtteranceState extends Equatable {
   /// Why the flow failed, shown by the failure screen.
   final Failure? notice;
   final int playbackId;
+  final String? retryMessage;
 
   bool get reaskExhausted => reaskCount >= UtteranceBloc.maxReask;
 
@@ -143,6 +145,7 @@ class UtteranceState extends Equatable {
     Candidate? Function()? selected,
     int? reaskCount,
     String? spokenText,
+    String? retryMessage,
   }) => UtteranceState(
     phase: phase ?? this.phase,
     mode: mode ?? this.mode,
@@ -154,6 +157,7 @@ class UtteranceState extends Equatable {
     reaskCount: reaskCount ?? this.reaskCount,
     spokenText: spokenText ?? this.spokenText,
     playbackId: playbackId,
+    retryMessage: retryMessage ?? this.retryMessage,
   );
 
   @override
@@ -169,6 +173,7 @@ class UtteranceState extends Equatable {
     spokenText,
     notice,
     playbackId,
+    retryMessage,
   ];
 }
 
@@ -371,10 +376,6 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
       'confidence=${transcription.asrConfidence} '
       'low=${transcription.isLowConfidence}',
     );
-    if (transcription.isLowConfidence) {
-      _reask(emit, transcription);
-      return;
-    }
     final suggested = await _repository.suggest(transcription);
     if (generation != _generation) return;
     AppLog.speak(switch (suggested) {
@@ -382,6 +383,31 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
       FailureResult(:final failure) => 'suggest failed ${failure.runtimeType}',
     });
     switch (suggested) {
+      case Success(:final value) when value.mode == SuggestionMode.retry:
+        emit(
+          state.copyWith(
+            phase: UtterancePhase.reask,
+            transcription: transcription,
+            suggestions: value,
+            reaskCount: state.reaskCount + 1,
+            retryMessage: value.retryMessage,
+          ),
+        );
+      case Success(:final value) when value.mode == SuggestionMode.proactive:
+        final text = value.verbatim?.text;
+        if (text == null) {
+          _notify(emit, const ProtocolFailure(), state);
+          return;
+        }
+        emit(
+          UtteranceState(
+            mode: state.mode,
+            transcription: transcription,
+            suggestions: value,
+            spokenText: text,
+            playbackId: state.playbackId + 1,
+          ),
+        );
       case Success(:final value) when !value.isEmpty:
         _candidatesShownAt = _now();
         emit(
@@ -413,22 +439,16 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
     }
   }
 
-  void _reask(Emitter<UtteranceState> emit, Transcription transcription) =>
-      emit(
-        state.copyWith(
-          phase: UtterancePhase.reask,
-          transcription: transcription,
-          reaskCount: state.reaskCount + 1,
-        ),
-      );
-
   void _onCandidate(
     UtteranceCandidateTapped event,
     Emitter<UtteranceState> emit,
   ) {
-    if (state.phase != UtterancePhase.suggesting) return;
+    if (state.phase != UtterancePhase.suggesting ||
+        !(state.suggestions?.candidates.contains(event.candidate) ?? false)) {
+      return;
+    }
     _feedback(VoiceHaptic.selected);
-    emit(state.copyWith(selected: () => event.candidate));
+    _selectAndSpeak(event.candidate, emit);
   }
 
   Future<void> _onConfirm(
@@ -436,20 +456,28 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
     Emitter<UtteranceState> emit,
   ) async {
     final candidate = state.selected;
+    if (candidate == null) return;
+    _selectAndSpeak(candidate, emit);
+  }
+
+  void _selectAndSpeak(Candidate candidate, Emitter<UtteranceState> emit) {
     final transcription = state.transcription;
     final suggestions = state.suggestions;
     if (state.phase != UtterancePhase.suggesting ||
-        candidate == null ||
         transcription == null ||
         suggestions == null) {
       return;
     }
-    _repository.logSelected(
-      transcription: transcription,
-      suggestions: suggestions,
-      candidate: candidate,
-      latency: _since(_candidatesShownAt),
-    );
+    try {
+      _repository.logSelected(
+        transcription: transcription,
+        suggestions: suggestions,
+        candidate: candidate,
+        latency: _since(_candidatesShownAt),
+      );
+    } on Object catch (error) {
+      AppLog.speak('selection log unavailable ${error.runtimeType}');
+    }
     ++_generation;
     _speak(candidate.text, emit);
   }

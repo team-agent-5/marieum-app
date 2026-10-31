@@ -14,7 +14,6 @@ class UtteranceRepositoryImpl implements UtteranceRepository {
     required this._source,
     required this._queue,
     required this._sequence,
-    this._prefetchSpeech,
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now {
     unawaited(_queue.flush());
@@ -29,8 +28,6 @@ class UtteranceRepositoryImpl implements UtteranceRepository {
   final SelectionLogQueue _queue;
   final SequenceStore _sequence;
 
-  /// Lets the voice prepare candidates while the patient is still reading.
-  final void Function(List<String>)? _prefetchSpeech;
   final DateTime Function() _now;
 
   int? get _previousLogId => int.tryParse(_sequence.lastLogId ?? '');
@@ -50,9 +47,6 @@ class UtteranceRepositoryImpl implements UtteranceRepository {
       'previous_log_id': _previousLogId,
       'client_ts': _isoWithOffset(_now()),
     });
-    if (result case Success(:final value)) {
-      _prefetchSpeech?.call([for (final c in value.candidates) c.text]);
-    }
     return result;
   }
 

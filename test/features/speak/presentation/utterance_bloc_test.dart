@@ -212,7 +212,7 @@ void main() {
     );
 
     blocTest<UtteranceBloc, UtteranceState>(
-      'requires a tap to select and a second tap to speak',
+      'plays a tapped candidate once and discards the other choices',
       build: build,
       seed: () => const UtteranceState(
         phase: UtterancePhase.suggesting,
@@ -226,9 +226,6 @@ void main() {
         await settle();
       },
       expect: () => [
-        isA<UtteranceState>()
-            .having(phaseOf, 'phase', UtterancePhase.suggesting)
-            .having((s) => s.selected, 'selected', _candidate),
         isA<UtteranceState>()
             .having(phaseOf, 'phase', UtterancePhase.idle)
             .having((s) => s.spokenText, 'text', '물 주세요')
@@ -244,6 +241,32 @@ void main() {
           ),
         ).called(1);
       },
+    );
+
+    blocTest<UtteranceBloc, UtteranceState>(
+      'keeps playback independent of a synchronous selection log failure',
+      setUp: () => when(
+        () => repository.logSelected(
+          transcription: any(named: 'transcription'),
+          suggestions: any(named: 'suggestions'),
+          candidate: any(named: 'candidate'),
+          latency: any(named: 'latency'),
+        ),
+      ).thenThrow(StateError('storage unavailable')),
+      build: build,
+      seed: () => const UtteranceState(
+        phase: UtterancePhase.suggesting,
+        transcription: _clear,
+        suggestions: _suggestions,
+      ),
+      act: (bloc) => bloc.add(const UtteranceCandidateTapped(_candidate)),
+      expect: () => [
+        isA<UtteranceState>().having(
+          (s) => s.spokenText,
+          'spoken text',
+          _candidate.text,
+        ),
+      ],
     );
 
     blocTest<UtteranceBloc, UtteranceState>(
@@ -302,6 +325,15 @@ void main() {
         when(
           () => repository.transcribe(any()),
         ).thenAnswer((_) async => const Success(_unclear));
+        when(() => repository.suggest(any())).thenAnswer(
+          (_) async => const Success(
+            Suggestions(
+              traceId: 'retry',
+              mode: SuggestionMode.retry,
+              retryMessage: '다시 말씀해 주세요.',
+            ),
+          ),
+        );
         return build();
       },
       act: (bloc) async {
@@ -321,7 +353,105 @@ void main() {
         expect(bloc.state.reaskCount, 3);
         expect(bloc.state.reaskExhausted, isTrue);
         expect(recorders, hasLength(3));
-        verifyNever(() => repository.suggest(any()));
+        verify(() => repository.suggest(_unclear)).called(3);
+      },
+    );
+
+    blocTest<UtteranceBloc, UtteranceState>(
+      'uses proactive mode to immediately hand '
+      'verbatim and suggestion to playback',
+      build: () {
+        when(() => repository.suggest(any())).thenAnswer(
+          (_) async => const Success(
+            Suggestions(
+              traceId: 'high',
+              mode: SuggestionMode.proactive,
+              verbatim: Candidate(
+                rank: 1,
+                text: '서버 원문',
+                score: 0.99,
+                source: CandidateSource.asrVerbatim,
+              ),
+              proactiveSuggestion: ProactiveSuggestion(
+                candidate: Candidate(rank: 2, text: '추천 문구', score: 0.86),
+                modalText: '추천 문구라고 말할까요?',
+              ),
+            ),
+          ),
+        );
+        return build();
+      },
+      act: (bloc) async {
+        bloc.add(const UtteranceButtonPressed(SpeakMode.precise));
+        await settle();
+        bloc.add(const UtteranceButtonPressed(SpeakMode.precise));
+        await settle();
+      },
+      verify: (bloc) {
+        expect(bloc.state.phase, UtterancePhase.idle);
+        expect(bloc.state.spokenText, '서버 원문');
+        expect(bloc.state.playbackId, 1);
+        expect(
+          bloc.state.suggestions?.proactiveSuggestion?.modalText,
+          '추천 문구라고 말할까요?',
+        );
+      },
+    );
+    blocTest<UtteranceBloc, UtteranceState>(
+      'uses the server single mode '
+      'even when local confidence would request retry',
+      build: () {
+        when(
+          () => repository.transcribe(any()),
+        ).thenAnswer((_) async => const Success(_unclear));
+        when(() => repository.suggest(any())).thenAnswer(
+          (_) async => const Success(
+            Suggestions(
+              traceId: 'single',
+              mode: SuggestionMode.single,
+              candidates: [_candidate],
+            ),
+          ),
+        );
+        return build();
+      },
+      act: (bloc) async {
+        bloc.add(const UtteranceButtonPressed(SpeakMode.precise));
+        await settle();
+        bloc.add(const UtteranceButtonPressed(SpeakMode.precise));
+        await settle();
+      },
+      verify: (bloc) {
+        expect(bloc.state.phase, UtterancePhase.suggesting);
+        expect(bloc.state.suggestions?.mode, SuggestionMode.single);
+        expect(bloc.state.spokenText, isNull);
+        verify(() => repository.suggest(_unclear)).called(1);
+      },
+    );
+    blocTest<UtteranceBloc, UtteranceState>(
+      'shows the successful retry message without issuing playback',
+      build: () {
+        when(() => repository.suggest(any())).thenAnswer(
+          (_) async => const Success(
+            Suggestions(
+              traceId: 'retry',
+              mode: SuggestionMode.retry,
+              retryMessage: '서버에서 안내한 다시 말하기 문구',
+            ),
+          ),
+        );
+        return build();
+      },
+      act: (bloc) async {
+        bloc.add(const UtteranceButtonPressed(SpeakMode.precise));
+        await settle();
+        bloc.add(const UtteranceButtonPressed(SpeakMode.precise));
+        await settle();
+      },
+      verify: (bloc) {
+        expect(bloc.state.phase, UtterancePhase.reask);
+        expect(bloc.state.retryMessage, '서버에서 안내한 다시 말하기 문구');
+        expect(bloc.state.playbackId, 0);
       },
     );
 
@@ -330,7 +460,7 @@ void main() {
       build: () {
         when(() => repository.suggest(any())).thenAnswer(
           (_) async => const Success(
-            Suggestions(traceId: 's2', candidates: []),
+            Suggestions(traceId: 's2'),
           ),
         );
         return build();

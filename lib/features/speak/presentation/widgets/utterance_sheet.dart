@@ -22,23 +22,28 @@ class UtteranceSheet extends StatelessWidget {
         buildWhen: (previous, current) => current.phase.usesSheet,
         builder: (context, state) => SafeArea(
           top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 10, 18, 14),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const _Handle(),
-                const SizedBox(height: 14),
-                switch (state.phase) {
-                  UtterancePhase.suggesting => _Candidates(state: state),
-                  UtterancePhase.reask when state.reaskExhausted =>
-                    const _ReaskExhausted(),
-                  UtterancePhase.reask => _Reask(state: state),
-                  UtterancePhase.failed => _Failed(failure: state.notice),
-                  _ => _NoMatch(state: state),
-                },
-              ],
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * 0.9,
+            ),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(18, 10, 18, 14),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const _Handle(),
+                  const SizedBox(height: 14),
+                  switch (state.phase) {
+                    UtterancePhase.suggesting => _Candidates(state: state),
+                    UtterancePhase.reask when state.reaskExhausted =>
+                      _ReaskExhausted(message: state.retryMessage),
+                    UtterancePhase.reask => _Reask(state: state),
+                    UtterancePhase.failed => _Failed(failure: state.notice),
+                    _ => _NoMatch(state: state),
+                  },
+                ],
+              ),
             ),
           ),
         ),
@@ -69,7 +74,9 @@ class _Candidates extends StatelessWidget {
     final bloc = context.read<UtteranceBloc>();
     final candidates = state.suggestions?.candidates ?? const <Candidate>[];
     final selected = state.selected;
-    if (candidates.length == 1) return _SingleCandidate(state: state);
+    if (state.suggestions?.mode == SuggestionMode.single) {
+      return _SingleCandidate(state: state);
+    }
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -122,15 +129,6 @@ class _Candidates extends StatelessWidget {
           const SizedBox(height: 9),
         ],
         const SizedBox(height: 4),
-        if (selected != null) ...[
-          FilledButton.icon(
-            key: const ValueKey('utterance_confirm'),
-            onPressed: () => bloc.add(const UtteranceConfirmPressed()),
-            icon: const Icon(Icons.volume_up_rounded),
-            label: const KeyText('이 말로 말하기'),
-          ),
-          const SizedBox(height: 9),
-        ],
         _SecondaryButton(
           key: const ValueKey('utterance_retry'),
           icon: Icons.mic_none_rounded,
@@ -142,76 +140,35 @@ class _Candidates extends StatelessWidget {
   }
 }
 
-/// A clear utterance: the one verbatim sentence is what was heard, so it is
-/// shown large and spoken with a single tap.
 class _SingleCandidate extends StatelessWidget {
   const _SingleCandidate({required this.state});
   final UtteranceState state;
 
   @override
   Widget build(BuildContext context) {
-    final bloc = context.read<UtteranceBloc>();
-    final text = state.suggestions!.candidates.single.text;
+    final candidate = state.suggestions!.candidates.single;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Semantics(
-          header: true,
-          child: const Text(
-            '이렇게 말씀드릴게요',
-            style: TextStyle(
-              fontSize: 20,
-              height: 1.35,
-              fontWeight: FontWeight.w800,
-              color: AppTokens.ink,
-            ),
-          ),
-        ),
+        const Text('이렇게 말씀드릴게요', style: AppTokens.title),
         const SizedBox(height: 14),
-        Container(
-          constraints: const BoxConstraints(minHeight: 184),
-          alignment: Alignment.center,
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: AppTokens.surface,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: AppTokens.primary, width: 2),
-          ),
-          child: KeyText(
-            text,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 48,
-              height: 1.2,
-              letterSpacing: -1.6,
-              fontWeight: FontWeight.w900,
-              color: AppTokens.ink,
-            ),
+        _CandidateTile(
+          candidate: candidate,
+          selected: false,
+          onTap: () => context.read<UtteranceBloc>().add(
+            UtteranceCandidateTapped(candidate),
           ),
         ),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(
-              flex: 2,
-              child: FilledButton.icon(
-                key: const ValueKey('utterance_confirm'),
-                onPressed: () => bloc.add(const UtteranceConfirmPressed()),
-                icon: const Icon(Icons.volume_up_rounded),
-                label: const KeyText('이 말로 말하기'),
-              ),
-            ),
-            const SizedBox(width: 9),
-            Expanded(
-              child: _SecondaryButton(
-                key: const ValueKey('utterance_retry'),
-                icon: Icons.mic_none_rounded,
-                label: '다시',
-                onPressed: () => bloc.add(const UtteranceRetryPressed()),
-              ),
-            ),
-          ],
+        const SizedBox(height: 12),
+        const Text('문장을 누르면 소리로 전달해요.', style: AppTokens.copy),
+        const SizedBox(height: 14),
+        _SecondaryButton(
+          key: const ValueKey('utterance_retry'),
+          icon: Icons.mic_none_rounded,
+          label: '다시 말하기',
+          onPressed: () =>
+              context.read<UtteranceBloc>().add(const UtteranceRetryPressed()),
         ),
       ],
     );
@@ -286,8 +243,8 @@ class _CandidateTile extends StatelessWidget {
                         KeyText(
                           candidate.text,
                           style: const TextStyle(
-                            fontSize: 18,
-                            height: 1.3,
+                            fontSize: 48,
+                            height: 1.2,
                             fontWeight: FontWeight.w800,
                             color: AppTokens.ink,
                           ),
@@ -322,7 +279,7 @@ class _CandidateTile extends StatelessWidget {
                   Icon(
                     selected
                         ? Icons.check_circle_rounded
-                        : Icons.radio_button_unchecked_rounded,
+                        : Icons.volume_up_rounded,
                     size: 24,
                     color: selected ? AppTokens.primary : AppTokens.lineStrong,
                   ),
@@ -340,6 +297,7 @@ class _CandidateTile extends StatelessWidget {
 String? reasonText(Candidate candidate) =>
     candidate.reasonDisplay ??
     switch (candidate.reasonLabel) {
+      'verbatim' => '방금 들린 그대로',
       'registered_preference' => '등록한 선호',
       'time_context' => '이 시간대에 자주 선택',
       'recency' => '최근 요청',
@@ -359,10 +317,10 @@ class _Reask extends StatelessWidget {
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       _AttemptBars(count: state.reaskCount),
-      const _Recovery(
+      _Recovery(
         icon: Icons.refresh_rounded,
         kicker: '소리가 조금 흐렸어요',
-        title: '한 번만 다시 말씀해 주세요',
+        title: state.retryMessage ?? '한 번만 다시 말씀해 주세요',
         body: '조금 천천히 말하면 더 정확하게 알아들을 수 있어요.',
       ),
       Container(
@@ -469,21 +427,23 @@ class _Failed extends StatelessWidget {
 }
 
 class _ReaskExhausted extends StatelessWidget {
-  const _ReaskExhausted();
+  const _ReaskExhausted({this.message});
+  final String? message;
 
   @override
-  Widget build(BuildContext context) => const Column(
+  Widget build(BuildContext context) => Column(
     mainAxisSize: MainAxisSize.min,
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      _AttemptBars(count: UtteranceBloc.maxReask),
-      _Recovery(
+      if (message != null) Text(message!, style: AppTokens.copy),
+      const _AttemptBars(count: UtteranceBloc.maxReask),
+      const _Recovery(
         icon: Icons.list_alt_rounded,
         kicker: '다른 방법을 써볼게요',
         title: '원하는 문장을 골라 주세요',
         body: '자주 사용하는 문장을 바로 재생할 수 있어요.',
       ),
-      _QuickOptions(moreLabel: '빠른 문장 더 보기'),
+      const _QuickOptions(moreLabel: '빠른 문장 더 보기'),
     ],
   );
 }

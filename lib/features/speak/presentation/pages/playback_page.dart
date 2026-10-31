@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:marieum_app/features/speak/domain/entities/playback_request.dart';
 import 'package:marieum_app/features/speak/presentation/cubit/playback_cubit.dart';
 import 'package:marieum_app/features/speak/presentation/widgets/playback_view.dart';
+import 'package:marieum_app/features/speak/presentation/widgets/proactive_suggestion_dialog.dart';
 
 class PlaybackPage extends StatelessWidget {
   const PlaybackPage({
@@ -32,7 +33,25 @@ class PlaybackPage extends StatelessWidget {
           context.go('/speak');
         }
       },
-      child: const PlaybackView(),
+      child: BlocBuilder<PlaybackCubit, PlaybackState>(
+        builder: (context, state) => PopScope(
+          canPop: !state.suggestionPending,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop) context.read<PlaybackCubit>().declineSuggestion();
+          },
+          child: Stack(
+            children: [
+              const PlaybackView(),
+              if (state.suggestionPending && state.suggestion != null)
+                Positioned.fill(
+                  child: ProactiveSuggestionDialog(
+                    suggestion: state.suggestion!,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
     ),
   );
 }
