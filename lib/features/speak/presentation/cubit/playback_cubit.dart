@@ -47,7 +47,6 @@ class PlaybackCubit extends Cubit<PlaybackState> {
        super(PlaybackState(text: request.text));
 
   static const returnDelay = Duration(seconds: 2);
-  static const suggestionDelay = Duration(seconds: 3);
 
   final TtsPort _tts;
   final VoiceHaptics _haptics;
@@ -55,7 +54,6 @@ class PlaybackCubit extends Cubit<PlaybackState> {
   final UtteranceRepository? repository;
   final DateTime Function() _now;
   Timer? _returnTimer;
-  Timer? _suggestionTimer;
   DateTime? _suggestionShownAt;
 
   /// A proactive playback is logged once, as the sentence that was kept.
@@ -85,7 +83,6 @@ class PlaybackCubit extends Cubit<PlaybackState> {
     final suggestion = _request.suggestions?.proactiveSuggestion;
     if (suggestion != null) {
       _suggestionShownAt = _now();
-      _suggestionTimer = Timer(suggestionDelay, declineSuggestion);
     } else {
       _logVerbatim();
     }
@@ -146,7 +143,6 @@ class PlaybackCubit extends Cubit<PlaybackState> {
 
   void declineSuggestion() {
     if (_closing || isClosed || !state.suggestionPending) return;
-    _suggestionTimer?.cancel();
     _logVerbatim();
     _update(state.status, failure: state.failure, suggestionPending: false);
     if (state.status == PlaybackStatus.completed) _scheduleReturn();
@@ -188,7 +184,6 @@ class PlaybackCubit extends Cubit<PlaybackState> {
         suggestion == null) {
       return;
     }
-    _suggestionTimer?.cancel();
     _returnTimer?.cancel();
     ++_revision;
     final shouldStop = state.status == PlaybackStatus.playing;
@@ -219,7 +214,6 @@ class PlaybackCubit extends Cubit<PlaybackState> {
     if (_closing || isClosed || state.status == PlaybackStatus.closed) return;
     ++_revision;
     _returnTimer?.cancel();
-    _suggestionTimer?.cancel();
     _endFeedback();
     emit(PlaybackState(text: state.text, status: PlaybackStatus.closed));
     await _stopTts();
@@ -232,7 +226,6 @@ class PlaybackCubit extends Cubit<PlaybackState> {
     _closing = true;
     ++_revision;
     _returnTimer?.cancel();
-    _suggestionTimer?.cancel();
     _endFeedback();
     await _stopTts();
     return super.close();

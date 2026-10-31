@@ -53,8 +53,6 @@ class ProactiveSuggestionDialog extends StatelessWidget {
                   style: AppTokens.copy,
                 ),
               ],
-              const SizedBox(height: 12),
-              const Text('3초 동안 선택하지 않으면 닫혀요.', style: AppTokens.copy),
             ],
           ),
           actions: [
