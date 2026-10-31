@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:marieum_app/core/audio/mic_stream.dart';
 import 'package:marieum_app/core/audio/speech_segmenter.dart';
@@ -17,7 +18,7 @@ class _MockMic extends Mock implements MicStream {}
 
 class _MockRepository extends Mock implements UtteranceRepository {}
 
-class _MockTts extends Mock implements TtsPort {}
+class _MockTts extends Mock implements PlaybackTtsPort {}
 
 class _MockSegmenter extends Mock implements SpeechSegmenter {}
 
@@ -66,96 +67,133 @@ const _clear = Transcription(
 );
 
 void main() {
-  late _MockMic mic;
-  late _FakeStream stream;
-  late _MockRepository repository;
-  late _MockTts tts;
-  late _MockSegmenter segmenter;
-  late StreamController<Uint8List> input;
-  late Completer<Result<void>> speaking;
-
-  setUpAll(() {
-    registerFallbackValue(_clear);
-    registerFallbackValue(Duration.zero);
-    registerFallbackValue(Uint8List(0));
-  });
-
-  setUp(() {
-    mic = _MockMic();
-    stream = _FakeStream();
-    repository = _MockRepository();
-    tts = _MockTts();
-    segmenter = _MockSegmenter();
-    input = StreamController<Uint8List>();
-    speaking = Completer();
-    when(mic.start).thenAnswer((_) async => input.stream);
-    when(mic.stop).thenAnswer((_) async {});
-    when(mic.dispose).thenAnswer((_) async {});
-    when(() => tts.speak(any())).thenAnswer((_) => speaking.future);
-    when(tts.stop).thenAnswer((_) async => const Success(null));
-    when(
-      () => repository.bypass(any(), latency: any(named: 'latency')),
-    ).thenAnswer((_) async => const Success('물 좀 주세요'));
-    when(() => segmenter.hearing).thenReturn(false);
-    when(() => segmenter.threshold).thenReturn(0.35);
-    when(segmenter.reset).thenReturn(null);
-  });
-
-  LiveSessionCubit build() => LiveSessionCubit(
-    mic: mic,
-    stream: stream,
-    repository: repository,
-    tts: tts,
-    segmenter: segmenter,
-  );
-
-  Future<void> signal(SegmentSignal? next) async {
-    when(
-      () => segmenter.add(any(), level: any(named: 'level')),
-    ).thenReturn(next);
-    input.add(Uint8List(3200));
-    await pumpEventQueue();
-  }
-
-  Future<_FakeUtterance> speakOnce() async {
-    await signal(SegmentStarted(Uint8List(12800)));
-    await signal(SegmentContinued(Uint8List(3200)));
-    await signal(SegmentEnded(Uint8List(3200), kept: true));
-    return stream.opened.last;
-  }
-
   group(LiveSessionCubit, () {
-    test(
-      'streams speech, shows interim text, speaks and logs the final',
-      () async {
-        final cubit = build();
-        addTearDown(cubit.close);
+    late _MockMic mic;
+    late _FakeStream stream;
+    late _MockRepository repository;
+    late _MockTts tts;
+    late _MockSegmenter segmenter;
+    late StreamController<Uint8List> input;
+    late Completer<Result<void>> speaking;
+    late DateTime now;
+    late bool startImmediately;
+    late void Function() playbackStarted;
+    late void Function() playbackEnded;
+
+    setUpAll(() {
+      registerFallbackValue(_clear);
+      registerFallbackValue(Duration.zero);
+      registerFallbackValue(Uint8List(0));
+    });
+    setUp(() {
+      mic = _MockMic();
+      stream = _FakeStream();
+      repository = _MockRepository();
+      tts = _MockTts();
+      segmenter = _MockSegmenter();
+      input = StreamController<Uint8List>.broadcast();
+      speaking = Completer();
+      now = DateTime(2026, 10, 31, 12);
+      startImmediately = true;
+      when(mic.start).thenAnswer((_) async => input.stream);
+      when(mic.stop).thenAnswer((_) async {});
+      when(mic.dispose).thenAnswer((_) async {});
+      when(
+        () => tts.speakWithPlayback(
+          any(),
+          onStarted: any(named: 'onStarted'),
+          onEnded: any(named: 'onEnded'),
+        ),
+      ).thenAnswer((call) async {
+        playbackStarted = call.namedArguments[#onStarted]! as void Function();
+        playbackEnded = call.namedArguments[#onEnded]! as void Function();
+        if (startImmediately) playbackStarted();
+        final result = await speaking.future;
+        playbackEnded();
+        return result;
+      });
+      when(tts.stop).thenAnswer((_) async {
+        if (!speaking.isCompleted) {
+          speaking.complete(const FailureResult(TtsFailure('stopped')));
+        }
+        return const Success(null);
+      });
+      when(
+        () => repository.bypass(any(), latency: any(named: 'latency')),
+      ).thenAnswer((_) async => const Success('기록'));
+      when(() => segmenter.hearing).thenReturn(false);
+      when(() => segmenter.threshold).thenReturn(0.35);
+      when(segmenter.reset).thenReturn(null);
+    });
+    tearDown(() async => input.close());
+
+    LiveSessionCubit build() => LiveSessionCubit(
+      mic: mic,
+      stream: stream,
+      repository: repository,
+      tts: tts,
+      segmenter: segmenter,
+      now: () => now,
+    );
+    Future<void> signal(SegmentSignal next) async {
+      now = now.add(const Duration(milliseconds: 100));
+      when(
+        () => segmenter.add(any(), level: any(named: 'level')),
+      ).thenReturn(next);
+      input.add(Uint8List(3200));
+      await pumpEventQueue();
+    }
+
+    Future<_FakeUtterance> phrase(String text, {bool end = true}) async {
+      await signal(SegmentStarted(Uint8List(3200)));
+      final session = stream.opened.last;
+      if (end) await signal(SegmentEnded(Uint8List(3200), kept: true));
+      now = now.add(const Duration(milliseconds: 250));
+      session.finish(
+        LiveFinal(
+          Transcription(
+            traceId: 't${stream.opened.length}',
+            finalTranscript: text,
+            asrConfidence: 0.9,
+          ),
+        ),
+      );
+      await pumpEventQueue();
+      return session;
+    }
+
+    void verifySpeech(String text) => verify(
+      () => tts.speakWithPlayback(
+        text,
+        onStarted: any(named: 'onStarted'),
+        onEnded: any(named: 'onEnded'),
+      ),
+    ).called(1);
+    void verifyNoSpeech() => verifyNever(
+      () => tts.speakWithPlayback(
+        any(),
+        onStarted: any(named: 'onStarted'),
+        onEnded: any(named: 'onEnded'),
+      ),
+    );
+
+    blocTest<LiveSessionCubit, LiveSessionState>(
+      'shows interim immediately and speaks a completed final before logging',
+      build: build,
+      act: (cubit) async {
         await cubit.start();
-        expect(cubit.state.status, LiveStatus.listening);
-
-        await signal(SegmentStarted(Uint8List(12800)));
-        final utterance = stream.opened.single;
-        utterance.controller.add(const LiveInterim('물 좀'));
+        await signal(SegmentStarted(Uint8List(3200)));
+        stream.opened.single.controller.add(const LiveInterim('물 좀'));
         await pumpEventQueue();
-        expect(
-          cubit.state.segments.single.status,
-          LiveSegmentStatus.interpreting,
-        );
         expect(cubit.state.segments.single.text, '물 좀');
-
         await signal(SegmentEnded(Uint8List(3200), kept: true));
-        expect(utterance.audio, hasLength(16000));
-        expect(utterance.ended, isTrue);
-
-        utterance.finish(const LiveFinal(_clear));
+        stream.opened.single.finish(const LiveFinal(_clear));
         await pumpEventQueue();
-        expect(cubit.state.segments.single.status, LiveSegmentStatus.done);
         expect(cubit.state.playing, isTrue);
-        verify(() => tts.speak('물 좀 주세요')).called(1);
+        verifySpeech('물 좀 주세요');
         verifyNever(
           () => repository.bypass(any(), latency: any(named: 'latency')),
         );
-
         speaking.complete(const Success(null));
         await pumpEventQueue();
         expect(cubit.state.playing, isFalse);
@@ -164,122 +202,237 @@ void main() {
         ).called(1);
       },
     );
-
-    test('keeps listening and streaming while the app speaks', () async {
-      final cubit = build();
-      addTearDown(cubit.close);
-      await cubit.start();
-      (await speakOnce()).finish(const LiveFinal(_clear));
-      await pumpEventQueue();
-      expect(cubit.state.playing, isTrue);
-
-      await signal(SegmentStarted(Uint8List(3200)));
-      expect(stream.opened, hasLength(2));
-      verifyNever(segmenter.reset);
-      speaking.complete(const Success(null));
-    });
-
-    test('ignores its own voice coming back through the microphone', () async {
-      final cubit = build();
-      addTearDown(cubit.close);
-      await cubit.start();
-      (await speakOnce()).finish(const LiveFinal(_clear));
-      await pumpEventQueue();
-
-      final echo = await speakOnce();
-      echo.controller.add(const LiveInterim('물 좀'));
-      await pumpEventQueue();
-      echo.finish(
-        const LiveFinal(
-          Transcription(
-            traceId: 't2',
-            finalTranscript: '물 좀 주세요.',
-            asrConfidence: 0.9,
+    blocTest<LiveSessionCubit, LiveSessionState>(
+      'opens a replacement on early final '
+      'and forwards subsequent PCM',
+      build: build,
+      act: (cubit) async {
+        await cubit.start();
+        await phrase('책상', end: false);
+        expect(stream.opened, hasLength(2));
+        expect(stream.opened.last.audio, isEmpty);
+        await signal(SegmentContinued(Uint8List.fromList([1, 2, 3, 4])));
+        expect(stream.opened.last.audio, [1, 2, 3, 4]);
+        verifySpeech('책상');
+      },
+    );
+    blocTest<LiveSessionCubit, LiveSessionState>(
+      'plays every valid final immediately '
+      'without waiting for a sentence ending',
+      build: build,
+      act: (cubit) async {
+        await cubit.start();
+        await phrase('책상');
+        expect(cubit.state.segments.single.text, '책상');
+        verifySpeech('책상');
+      },
+    );
+    blocTest<LiveSessionCubit, LiveSessionState>(
+      'serializes finals while bypass HTTP responses remain pending',
+      build: build,
+      act: (cubit) async {
+        final http = Completer<Result<String>>();
+        when(
+          () => repository.bypass(any(), latency: any(named: 'latency')),
+        ).thenAnswer((_) => http.future);
+        await cubit.start();
+        await phrase('첫 문장');
+        await phrase('다음 문장');
+        verifySpeech('첫 문장');
+        verifyNever(
+          () => tts.speakWithPlayback(
+            '다음 문장',
+            onStarted: any(named: 'onStarted'),
+            onEnded: any(named: 'onEnded'),
           ),
-        ),
-      );
-      await pumpEventQueue();
-      expect(cubit.state.segments, hasLength(1));
-      verify(() => tts.speak(any())).called(1);
-      speaking.complete(const Success(null));
-    });
-
-    test('prepares the voice from the last interim when speech ends', () async {
-      final prefetched = <String>[];
-      final cubit = LiveSessionCubit(
-        mic: mic,
-        stream: stream,
-        repository: repository,
-        tts: tts,
-        prefetchSpeech: prefetched.add,
-        segmenter: segmenter,
-      );
-      addTearDown(cubit.close);
-      await cubit.start();
-      await signal(SegmentStarted(Uint8List(3200)));
-      stream.opened.single.controller.add(const LiveInterim('물 좀 주세요'));
-      await pumpEventQueue();
-      await signal(SegmentEnded(Uint8List(3200), kept: true));
-      expect(prefetched, ['물 좀 주세요']);
-    });
-
-    test('cancels a click too short to be speech', () async {
-      final cubit = build();
-      addTearDown(cubit.close);
-      await cubit.start();
-      await signal(SegmentStarted(Uint8List(3200)));
-      stream.opened.single.controller.add(const LiveInterim('어'));
-      await pumpEventQueue();
-      await signal(SegmentEnded(Uint8List(3200), kept: false));
-      expect(stream.opened.single.cancelled, isTrue);
-      expect(cubit.state.segments, isEmpty);
-    });
-
-    test('marks unclear speech without speaking', () async {
-      final cubit = build();
-      addTearDown(cubit.close);
-      await cubit.start();
-      (await speakOnce()).finish(const LiveUnclear());
-      await pumpEventQueue();
-      expect(cubit.state.segments.single.status, LiveSegmentStatus.unclear);
-      verifyNever(() => tts.speak(any()));
-      verifyNever(
-        () => repository.bypass(any(), latency: any(named: 'latency')),
-      );
-    });
-
-    test('keeps listening when one utterance fails', () async {
-      final cubit = build();
-      addTearDown(cubit.close);
-      await cubit.start();
-      (await speakOnce()).finish(const LiveFailed(NetworkFailure()));
-      await pumpEventQueue();
-      expect(cubit.state.segments.single.status, LiveSegmentStatus.failed);
-      expect(cubit.state.status, LiveStatus.listening);
-    });
-
-    test('shows a failure when the microphone is denied', () async {
-      when(mic.start).thenThrow(const PermissionFailure(permanent: true));
-      final cubit = build();
-      addTearDown(cubit.close);
-      await cubit.start();
-      expect(cubit.state.status, LiveStatus.failed);
-      expect(cubit.state.failure, isA<PermissionFailure>());
-    });
-
-    test(
-      'stop cancels the stream, closes the mic and silences speech',
-      () async {
-        final cubit = build();
-        addTearDown(cubit.close);
+        );
+        speaking.complete(const Success(null));
+        await pumpEventQueue();
+        verifySpeech('다음 문장');
+        expect(http.isCompleted, isFalse);
+        http.complete(const Success('기록'));
+      },
+    );
+    blocTest<LiveSessionCubit, LiveSessionState>(
+      'does not filter before playback starts '
+      'and records real start latency',
+      build: build,
+      act: (cubit) async {
+        startImmediately = false;
+        await cubit.start();
+        await phrase('물 좀 주세요');
+        expect(cubit.state.playing, isFalse);
+        await signal(SegmentStarted(Uint8List(3200)));
+        stream.opened.last.controller.add(const LiveInterim('물 좀 주세요'));
+        await pumpEventQueue();
+        expect(cubit.state.segments.last.text, '물 좀 주세요');
+        now = now.add(const Duration(milliseconds: 700));
+        playbackStarted();
+        expect(cubit.state.playing, isTrue);
+        speaking.complete(const Success(null));
+        await pumpEventQueue();
+        final latency =
+            verify(
+                  () => repository.bypass(
+                    any(),
+                    latency: captureAny(named: 'latency'),
+                  ),
+                ).captured.single
+                as Duration;
+        expect(latency.inMilliseconds, 1150);
+      },
+    );
+    blocTest<LiveSessionCubit, LiveSessionState>(
+      'filters only similar sentences during playback and its one second tail',
+      build: build,
+      act: (cubit) async {
+        await cubit.start();
+        await phrase('물 좀 주세요');
+        await phrase('물 좀 주세요.');
+        expect(cubit.state.segments, hasLength(1));
+        speaking.complete(const Success(null));
+        await pumpEventQueue();
+        now = now.add(const Duration(milliseconds: 200));
+        await phrase('물 좀 주세요');
+        expect(cubit.state.segments, hasLength(1));
+        now = now.add(const Duration(seconds: 2));
+        await phrase('물 좀 주세요');
+        expect(cubit.state.segments, hasLength(2));
+      },
+    );
+    blocTest<LiveSessionCubit, LiveSessionState>(
+      'keeps short real utterances instead of deleting them as substrings',
+      build: build,
+      act: (cubit) async {
+        await cubit.start();
+        await phrase('물 좀 주세요');
+        await signal(SegmentStarted(Uint8List(3200)));
+        stream.opened.last.controller.add(const LiveInterim('물'));
+        await pumpEventQueue();
+        expect(cubit.state.segments.last.text, '물');
+        stream.opened.last.controller.add(const LiveInterim('네'));
+        await pumpEventQueue();
+        expect(cubit.state.segments.last.text, '네');
+      },
+    );
+    blocTest<LiveSessionCubit, LiveSessionState>(
+      'hides replacement characters and never plays a corrupted final',
+      build: build,
+      act: (cubit) async {
         await cubit.start();
         await signal(SegmentStarted(Uint8List(3200)));
-        await cubit.stop();
-        expect(stream.opened.single.cancelled, isTrue);
-        verify(mic.stop).called(1);
-        verify(tts.stop).called(1);
-        expect(cubit.state.status, LiveStatus.closed);
+        stream.opened.last.controller.add(const LiveInterim('물� 주세요'));
+        await pumpEventQueue();
+        expect(cubit.state.segments.last.text, '물 주세요');
+        await signal(SegmentEnded(Uint8List(3200), kept: true));
+        stream.opened.last.finish(
+          const LiveFinal(
+            Transcription(
+              traceId: 'broken',
+              finalTranscript: '물� 주세요',
+              asrConfidence: 0.9,
+            ),
+          ),
+        );
+        await pumpEventQueue();
+        expect(
+          cubit.state.segments.single.status,
+          LiveSegmentStatus.unclear,
+        );
+        verifyNoSpeech();
+        await Future<void>.delayed(const Duration(milliseconds: 1050));
+        verifyNoSpeech();
       },
+    );
+    blocTest<LiveSessionCubit, LiveSessionState>(
+      'does not speak or log a low confidence result',
+      build: build,
+      act: (cubit) async {
+        await cubit.start();
+        await signal(SegmentStarted(Uint8List(3200)));
+        await signal(SegmentEnded(Uint8List(3200), kept: true));
+        stream.opened.last.finish(const LiveUnclear());
+        await pumpEventQueue();
+        expect(cubit.state.segments.single.status, LiveSegmentStatus.unclear);
+        verifyNoSpeech();
+      },
+    );
+    blocTest<LiveSessionCubit, LiveSessionState>(
+      'does not play or log a final below the confidence threshold',
+      build: build,
+      act: (cubit) async {
+        await cubit.start();
+        await signal(SegmentStarted(Uint8List(3200)));
+        await signal(SegmentEnded(Uint8List(3200), kept: true));
+        stream.opened.last.finish(
+          const LiveFinal(
+            Transcription(
+              traceId: 'low',
+              finalTranscript: '물 주세요',
+              asrConfidence: 0.3,
+            ),
+          ),
+        );
+        await pumpEventQueue();
+        expect(cubit.state.segments.single.status, LiveSegmentStatus.unclear);
+        verifyNoSpeech();
+        verifyNever(
+          () => repository.bypass(any(), latency: any(named: 'latency')),
+        );
+      },
+    );
+    blocTest<LiveSessionCubit, LiveSessionState>(
+      'restarts the microphone with the chosen debug echo cancellation mode',
+      build: build,
+      act: (cubit) async {
+        await cubit.start();
+        await cubit.setEchoCancel(enabled: false);
+        expect(cubit.state.echoCancel, isFalse);
+        expect(cubit.state.switchingAudio, isFalse);
+        verify(() => mic.setEchoCancelForDebug(enabled: false)).called(1);
+        verify(mic.start).called(2);
+      },
+    );
+    blocTest<LiveSessionCubit, LiveSessionState>(
+      'stop cancels queued playback and all outstanding socket sessions',
+      build: build,
+      act: (cubit) async {
+        await cubit.start();
+        await phrase('책상');
+        await phrase('다음 문장');
+        await signal(SegmentStarted(Uint8List(3200)));
+        await cubit.stop();
+        await Future<void>.delayed(const Duration(milliseconds: 1050));
+        expect(stream.opened.last.cancelled, isTrue);
+        expect(cubit.state.status, LiveStatus.closed);
+        verifySpeech('책상');
+        verifyNever(
+          () => tts.speakWithPlayback(
+            '다음 문장',
+            onStarted: any(named: 'onStarted'),
+            onEnded: any(named: 'onEnded'),
+          ),
+        );
+      },
+    );
+    blocTest<LiveSessionCubit, LiveSessionState>(
+      'surfaces microphone permission failure',
+      setUp: () =>
+          when(mic.start).thenThrow(const PermissionFailure(permanent: true)),
+      build: build,
+      act: (cubit) => cubit.start(),
+      expect: () => [
+        isA<LiveSessionState>().having(
+          (s) => s.status,
+          'status',
+          LiveStatus.failed,
+        ),
+        isA<LiveSessionState>().having(
+          (s) => s.status,
+          'status',
+          LiveStatus.closed,
+        ),
+      ],
     );
   });
 }

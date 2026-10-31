@@ -20,18 +20,18 @@ void main() {
         signals.fold(0, (sum, s) => sum + s.audio.length);
 
     test('streams a segment from its lead-in to the pause', () {
-      expect(feed(0.1, 5), isEmpty);
+      expect(feed(0.1, 10), isEmpty);
       final voice = feed(0.6, 6);
       expect(voice.first, isA<SegmentStarted>());
-      // 300 ms lead-in plus the first voice chunk.
-      expect(voice.first.audio.length, 3200 * 4);
+      // 600 ms lead-in plus the first voice chunk.
+      expect(voice.first.audio.length, 3200 * 7);
       expect(voice.skip(1), everyElement(isA<SegmentContinued>()));
       expect(segmenter.hearing, isTrue);
       final pause = feed(0.1, 10);
       expect(pause.last, isA<SegmentEnded>());
       expect((pause.last as SegmentEnded).kept, isTrue);
-      // 300 ms lead-in + 600 ms voice + 1 s pause.
-      expect(bytes([...voice, ...pause]), 3200 * 19);
+      // 600 ms lead-in + 600 ms voice + 1 s pause.
+      expect(bytes([...voice, ...pause]), 3200 * 22);
       expect(segmenter.hearing, isFalse);
     });
 
@@ -63,6 +63,14 @@ void main() {
       feed(0.02, 20);
       segmenter.reset();
       expect(segmenter.threshold, closeTo(0.22, 1e-9));
+    });
+
+    test('resets noise calibration when the audio processing mode changes', () {
+      feed(0.45, 50);
+      expect(segmenter.threshold, 0.6);
+      segmenter.resetNoiseFloor();
+      expect(segmenter.threshold, SpeechSegmenter.defaultThreshold);
+      expect(feed(0.4).single, isA<SegmentStarted>());
     });
 
     test('reset drops the segment in progress', () {

@@ -39,7 +39,7 @@ class SpeechSegmenter {
     this.minSpeech = const Duration(milliseconds: 300),
     this.endSilence = const Duration(milliseconds: 1000),
     this.maxSegment = const Duration(seconds: 8),
-    this.preRoll = const Duration(milliseconds: 300),
+    this.preRoll = const Duration(milliseconds: 600),
   });
 
   /// Used until enough of the room has been heard.
@@ -129,6 +129,13 @@ class SpeechSegmenter {
     _lengthMs = 0;
     _speechMs = 0;
     _silenceMs = 0;
+  }
+
+  void resetNoiseFloor() {
+    reset();
+    _recent.clear();
+    _recentMs = 0;
+    _threshold = defaultThreshold;
   }
 
   /// Tracks the noise floor as a low percentile of recent input: speech

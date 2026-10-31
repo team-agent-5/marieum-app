@@ -10,7 +10,7 @@ abstract interface class TtsEngine {
   Future<List<TtsVoice>> koreanVoices();
   Future<void> setVoice(TtsVoice voice);
   Future<void> configure({required double rate, required double volume});
-  Future<void> speak(String text);
+  Future<void> speak(String text, {void Function()? onStarted});
   Future<void> stop();
 }
 
@@ -18,6 +18,7 @@ class FlutterTtsEngine implements TtsEngine {
   FlutterTtsEngine({required this._platform, FlutterTts? plugin})
     : _plugin = plugin ?? FlutterTts() {
     _plugin
+      ..setStartHandler(() => _onStarted?.call())
       ..setCompletionHandler(_complete)
       ..setCancelHandler(
         () => _complete(const TtsFailure('음성 재생이 중지되었습니다.')),
@@ -30,10 +31,12 @@ class FlutterTtsEngine implements TtsEngine {
   final VoicePlatform _platform;
   final FlutterTts _plugin;
   Completer<void>? _pending;
+  void Function()? _onStarted;
 
   void _complete([TtsFailure? failure]) {
     final pending = _pending;
     _pending = null;
+    _onStarted = null;
     if (pending == null || pending.isCompleted) return;
     if (failure == null) {
       pending.complete();
@@ -145,10 +148,11 @@ class FlutterTtsEngine implements TtsEngine {
   }
 
   @override
-  Future<void> speak(String text) async {
+  Future<void> speak(String text, {void Function()? onStarted}) async {
     if (_pending != null) throw const TtsFailure('이미 음성을 재생하고 있습니다.');
     final pending = Completer<void>();
     _pending = pending;
+    _onStarted = onStarted;
     // Listen before an immediate platform completion or error.
     final started = _plugin
         .speak(text)

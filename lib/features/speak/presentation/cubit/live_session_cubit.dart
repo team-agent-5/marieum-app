@@ -1,7 +1,7 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:equatable/equatable.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:marieum_app/core/audio/mic_stream.dart';
 import 'package:marieum_app/core/audio/recorder.dart';
@@ -10,6 +10,7 @@ import 'package:marieum_app/core/error/failure.dart';
 import 'package:marieum_app/core/error/result.dart';
 import 'package:marieum_app/core/log/app_log.dart';
 import 'package:marieum_app/core/tts/tts_port.dart';
+import 'package:marieum_app/features/speak/domain/entities/live_phrase_policy.dart';
 import 'package:marieum_app/features/speak/domain/entities/utterance.dart';
 import 'package:marieum_app/features/speak/domain/repositories/live_stream.dart';
 import 'package:marieum_app/features/speak/domain/repositories/utterance_repository.dart';
@@ -58,6 +59,8 @@ class LiveSessionState extends Equatable {
     this.elapsed = Duration.zero,
     this.segments = const [],
     this.failure,
+    this.echoCancel = true,
+    this.switchingAudio = false,
   });
 
   final LiveStatus status;
@@ -71,11 +74,13 @@ class LiveSessionState extends Equatable {
   /// The level that currently counts as voice, following the room noise.
   final double threshold;
 
-  /// The segment being spoken aloud; the microphone is ignored meanwhile.
+  /// The segment actually playing; microphone capture continues meanwhile.
   final int? playingId;
   final Duration elapsed;
   final List<LiveSegment> segments;
   final Failure? failure;
+  final bool echoCancel;
+  final bool switchingAudio;
 
   bool get playing => playingId != null;
 
@@ -88,6 +93,8 @@ class LiveSessionState extends Equatable {
     Duration? elapsed,
     List<LiveSegment>? segments,
     Failure? failure,
+    bool? echoCancel,
+    bool? switchingAudio,
   }) => LiveSessionState(
     status: status ?? this.status,
     levels: levels ?? this.levels,
@@ -97,6 +104,8 @@ class LiveSessionState extends Equatable {
     elapsed: elapsed ?? this.elapsed,
     segments: segments ?? this.segments,
     failure: failure ?? this.failure,
+    echoCancel: echoCancel ?? this.echoCancel,
+    switchingAudio: switchingAudio ?? this.switchingAudio,
   );
 
   @override
@@ -109,20 +118,19 @@ class LiveSessionState extends Equatable {
     elapsed,
     segments,
     failure,
+    echoCancel,
+    switchingAudio,
   ];
 }
 
 /// Live mode: keeps listening and streams each utterance to the server as
-/// the patient speaks, showing what it understands so far. Each final
-/// sentence is spoken as soon as it arrives, without pausing the
-/// microphone, and logged once it has been heard.
+/// the patient speaks. Valid finals enter playback immediately, in order.
 class LiveSessionCubit extends Cubit<LiveSessionState> {
   LiveSessionCubit({
     required this._mic,
     required this._stream,
     required this._repository,
     required this._tts,
-    this._prefetchSpeech,
     SpeechSegmenter? segmenter,
     DateTime Function()? now,
   }) : _segmenter = segmenter ?? SpeechSegmenter(),
@@ -133,15 +141,12 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
 
   /// How long after the app finishes a sentence it may still come back
   /// through the microphone.
-  static const echoTail = Duration(milliseconds: 1500);
+  static const echoTail = Duration(seconds: 1);
 
   final MicStream _mic;
   final LiveStream _stream;
   final UtteranceRepository _repository;
-  final TtsPort _tts;
-
-  /// Lets the voice prepare a sentence while its final is still on the way.
-  final void Function(String)? _prefetchSpeech;
+  final PlaybackTtsPort _tts;
   final SpeechSegmenter _segmenter;
   final DateTime Function() _now;
 
@@ -152,8 +157,13 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   bool _ended = false;
   LiveUtterance? _active;
   int? _activeId;
-  final _endedAt = <int, DateTime>{};
-  final _interim = <int, String>{};
+  final _lastVoiceAt = <int, DateTime>{};
+  final _audioBytes = <int, int>{};
+  final _sessions = <LiveUtterance>{};
+  final _subscriptions = <StreamSubscription<LiveEvent>>{};
+  DateTime? _lastInputVoiceAt;
+  bool _capturing = false;
+  bool _speechBusy = false;
 
   /// Sentences the app spoke, until when their echo may still be heard;
   /// null while still playing.
@@ -193,6 +203,13 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     final levels = [...state.levels, level];
     if (levels.length > historyLength) levels.removeAt(0);
     final signal = _segmenter.add(chunk, level: level);
+    if (_segmenter.hearing ||
+        signal is SegmentStarted ||
+        level >= state.threshold) {
+      _lastInputVoiceAt = _now();
+      final id = _activeId;
+      if (id != null) _lastVoiceAt[id] = _lastInputVoiceAt!;
+    }
     emit(
       state.copyWith(
         levels: levels,
@@ -202,84 +219,130 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     );
     switch (signal) {
       case SegmentStarted(:final audio):
+        AppLog.speak(
+          'live input_level=$level threshold=${_segmenter.threshold} '
+          'echo_cancel=${state.echoCancel}',
+        );
+        _capturing = true;
         _begin(audio);
       case SegmentContinued(:final audio):
-        _active?.add(audio);
+        if (_active == null) _begin(Uint8List(0));
+        _addAudio(audio);
       case SegmentEnded(:final audio, :final kept):
-        _active?.add(audio);
+        _capturing = false;
+        _addAudio(audio);
         kept ? _finishActive() : _drop();
       case null:
         break;
     }
   }
 
+  void _addAudio(Uint8List audio) {
+    final id = _activeId;
+    if (id == null) return;
+    _audioBytes[id] = (_audioBytes[id] ?? 0) + audio.length;
+    _active?.add(audio);
+  }
+
   void _begin(Uint8List audio) {
     final id = _nextId++;
-    final utterance = _stream.open()..add(audio);
+    final utterance = _stream.open();
+    _sessions.add(utterance);
     _active = utterance;
     _activeId = id;
+    _lastVoiceAt[id] = _lastInputVoiceAt ?? _now();
+    _audioBytes[id] = 0;
+    _addAudio(audio);
     AppLog.speak('live segment $id started');
-    utterance.events.listen(
+    late final StreamSubscription<LiveEvent> subscription;
+    subscription = utterance.events.listen(
       (event) {
         if (_ended || isClosed) return;
+        if (event is! LiveInterim) {
+          _sessions.remove(utterance);
+          _audioBytes.remove(id);
+          if (identical(_active, utterance)) {
+            _active = null;
+            _activeId = null;
+            if (_capturing && event is LiveFinal) {
+              _begin(Uint8List(0));
+            }
+          }
+        }
         switch (event) {
           case LiveInterim(:final text):
             if (_isEcho(text)) return;
-            _interim[id] = text;
-            _show(id, LiveSegmentStatus.interpreting, text);
+            _show(
+              id,
+              LiveSegmentStatus.interpreting,
+              LivePhrasePolicy.displayText(text),
+            );
           case LiveFinal(:final transcription):
-            _interim.remove(id);
-            final endedAt = _endedAt.remove(id) ?? _now();
+            final finalAt = _now();
+            final lastVoiceAt = _lastVoiceAt.remove(id)!;
+            AppLog.speak(
+              'live segment $id last_voice=${lastVoiceAt.toIso8601String()} '
+              'final=${finalAt.toIso8601String()} '
+              'asr_ms=${finalAt.difference(lastVoiceAt).inMilliseconds}',
+            );
             if (_isEcho(transcription.finalTranscript)) {
-              AppLog.speak("live segment $id was the app's own voice");
               _remove(id);
               return;
             }
-            if (transcription.isLowConfidence) {
-              _show(id, LiveSegmentStatus.unclear, transcription.heard);
+            if (transcription.isLowConfidence ||
+                transcription.finalTranscript.contains('\uFFFD')) {
+              _show(
+                id,
+                LiveSegmentStatus.unclear,
+                LivePhrasePolicy.displayText(transcription.heard),
+              );
               return;
             }
             _show(id, LiveSegmentStatus.done, transcription.finalTranscript);
-            final latency = _now().difference(endedAt);
-            _queue = _queue.then(
-              (_) => _speakAndLog(id, transcription, latency),
+            final phrase = _LivePlayback(
+              id,
+              transcription,
+              lastVoiceAt,
+              finalAt,
             );
+            _queue = _queue.then((_) => _speakAndLog(phrase));
           case LiveUnclear():
-            _interim.remove(id);
+            _lastVoiceAt.remove(id);
             _show(id, LiveSegmentStatus.unclear, '');
           case LiveFailed(:final failure):
-            _interim.remove(id);
+            _lastVoiceAt.remove(id);
             _show(id, LiveSegmentStatus.failed, failure.message);
         }
       },
+      onDone: () {
+        _sessions.remove(utterance);
+        _subscriptions.remove(subscription);
+      },
     );
+    _subscriptions.add(subscription);
   }
 
-  static String _normalize(String text) =>
-      text.replaceAll(RegExp(r'[\s.,!?~…]'), '');
-
-  /// Whether [text] is the app's own recent sentence coming back through
-  /// the microphone rather than the patient speaking.
   bool _isEcho(String text) {
     final now = _now();
-    _spoken.removeWhere((s) => s.until != null && s.until!.isBefore(now));
-    final heard = _normalize(text);
-    if (heard.isEmpty) return false;
-    return _spoken.any((s) => s.text.contains(heard));
+    _spoken.removeWhere((s) => s.until != null && !s.until!.isAfter(now));
+    return _spoken.any((s) => LivePhrasePolicy.isEcho(s.text, text));
   }
 
   void _finishActive() {
     final id = _activeId;
     if (id == null) return;
-    _endedAt[id] = _now();
-    final guess = _interim[id];
-    if (guess != null) _prefetchSpeech?.call(guess);
-    _active?.end();
+    if ((_audioBytes[id] ?? 0) == 0) {
+      _active?.cancel();
+      _lastVoiceAt.remove(id);
+      _audioBytes.remove(id);
+    } else {
+      _active?.end();
+      if (!state.segments.any((s) => s.id == id)) {
+        _show(id, LiveSegmentStatus.interpreting, '');
+      }
+    }
     _active = null;
     _activeId = null;
-    if (!state.segments.any((s) => s.id == id)) {
-      _show(id, LiveSegmentStatus.interpreting, '');
-    }
   }
 
   /// Abandons the utterance in progress, e.g. a click too short to be speech.
@@ -291,8 +354,8 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     _active?.cancel();
     _active = null;
     _activeId = null;
-    _endedAt.remove(id);
-    _interim.remove(id);
+    _lastVoiceAt.remove(id);
+    _audioBytes.remove(id);
     _remove(id);
   }
 
@@ -308,37 +371,130 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     );
   }
 
-  Future<void> _speakAndLog(
-    int id,
-    Transcription transcription,
-    Duration latency,
-  ) async {
+  Future<void> _speakAndLog(_LivePlayback phrase) async {
     if (_ended || isClosed) return;
-    await _speak(id, transcription.finalTranscript);
-    if (_ended || isClosed) return;
+    DateTime? playbackAt;
+    final result = await _speak(
+      phrase.id,
+      phrase.transcription.finalTranscript,
+      onStarted: (at) {
+        playbackAt = at;
+        AppLog.speak(
+          'live segment ${phrase.id} '
+          'last_voice=${phrase.lastVoiceAt.toIso8601String()} '
+          'final=${phrase.finalAt.toIso8601String()} '
+          'playback=${at.toIso8601String()} '
+          'final_to_play_ms=${at.difference(phrase.finalAt).inMilliseconds} '
+          'latency_ms=${at.difference(phrase.lastVoiceAt).inMilliseconds}',
+        );
+      },
+    );
+    if (_ended || isClosed || result is! Success<void> || playbackAt == null) {
+      return;
+    }
+    final latency = playbackAt!.difference(phrase.lastVoiceAt);
     unawaited(
-      _repository.bypass(transcription, latency: latency).then((logged) {
-        if (logged case FailureResult(:final failure)) {
-          AppLog.speak('live segment $id not logged ${failure.runtimeType}');
-        }
-      }),
+      _logPlayback(phrase, latency.isNegative ? Duration.zero : latency),
     );
   }
 
-  Future<void> _speak(int id, String text) async {
-    final entry = (text: _normalize(text), until: null);
-    _spoken.add(entry);
-    emit(state.copyWith(playingId: () => id));
-    await _tts.speak(text);
-    _spoken
-      ..remove(entry)
-      ..add((text: entry.text, until: _now().add(echoTail)));
-    if (_ended || isClosed) return;
-    emit(state.copyWith(playingId: () => null));
+  Future<void> _logPlayback(_LivePlayback phrase, Duration latency) async {
+    try {
+      final logged = await _repository.bypass(
+        phrase.transcription,
+        latency: latency,
+      );
+      if (logged case FailureResult(:final failure)) {
+        AppLog.speak(
+          'live segment ${phrase.id} not logged ${failure.runtimeType}',
+        );
+      }
+    } on Object catch (error) {
+      AppLog.speak('live segment ${phrase.id} log failed ${error.runtimeType}');
+    }
+  }
+
+  Future<Result<void>> _speak(
+    int id,
+    String text, {
+    void Function(DateTime)? onStarted,
+  }) async {
+    if (_speechBusy) return const FailureResult(TtsFailure('이미 재생 중이에요.'));
+    _speechBusy = true;
+    ({String text, DateTime? until})? entry;
+    void finishPlayback() {
+      final spoken = entry;
+      if (spoken == null) return;
+      _spoken
+        ..remove(spoken)
+        ..add((text: spoken.text, until: _now().add(echoTail)));
+      entry = null;
+      if (!_ended && !isClosed) emit(state.copyWith(playingId: () => null));
+    }
+
+    try {
+      return await _tts.speakWithPlayback(
+        text,
+        onStarted: () {
+          if (_ended || isClosed || entry != null) return;
+          final at = _now();
+          entry = (text: text, until: null);
+          _spoken.add(entry!);
+          emit(state.copyWith(playingId: () => id));
+          onStarted?.call(at);
+        },
+        onEnded: finishPlayback,
+      );
+    } on Object {
+      return const FailureResult(TtsFailure('음성을 재생하지 못했어요.'));
+    } finally {
+      finishPlayback();
+      _speechBusy = false;
+    }
+  }
+
+  Future<void> setEchoCancel({required bool enabled}) async {
+    if (kReleaseMode ||
+        _ended ||
+        isClosed ||
+        state.switchingAudio ||
+        state.echoCancel == enabled) {
+      return;
+    }
+    emit(state.copyWith(switchingAudio: true));
+    _capturing = false;
+    _drop();
+    await _input?.cancel();
+    _input = null;
+    try {
+      await _mic.stop();
+      if (_ended || isClosed) return;
+      _mic.setEchoCancelForDebug(enabled: enabled);
+      _segmenter.resetNoiseFloor();
+      final stream = await _mic.start();
+      if (_ended || isClosed) {
+        await _mic.stop();
+        return;
+      }
+      _input = stream.listen(_onChunk);
+      emit(state.copyWith(echoCancel: enabled, switchingAudio: false));
+      AppLog.speak('live microphone echo_cancel=$enabled restarted');
+    } on Object {
+      if (!_ended && !isClosed) {
+        emit(
+          state.copyWith(
+            status: LiveStatus.failed,
+            switchingAudio: false,
+            failure: const RecordingFailure('마이크를 다시 열지 못했어요.'),
+          ),
+        );
+      }
+    }
   }
 
   /// Adds the segment on its first news, or updates it.
   void _show(int id, LiveSegmentStatus status, String text) {
+    final visibleText = LivePhrasePolicy.displayText(text);
     if (status != LiveSegmentStatus.interpreting) {
       AppLog.speak('live segment $id ${status.name} "$text"');
     }
@@ -349,12 +505,17 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
             ? [
                 for (final segment in state.segments)
                   segment.id == id
-                      ? segment.copyWith(status: status, text: text)
+                      ? segment.copyWith(status: status, text: visibleText)
                       : segment,
               ]
             : [
                 ...state.segments,
-                LiveSegment(id: id, at: _now(), status: status, text: text),
+                LiveSegment(
+                  id: id,
+                  at: _now(),
+                  status: status,
+                  text: visibleText,
+                ),
               ],
       ),
     );
@@ -362,7 +523,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
 
   /// Speaks an earlier sentence again, e.g. when the listener missed it.
   Future<void> replay(int id) async {
-    if (_ended || isClosed || state.playing) return;
+    if (_ended || isClosed || _speechBusy) return;
     final segment = state.segments.where((s) => s.id == id).firstOrNull;
     if (segment == null || segment.status != LiveSegmentStatus.done) return;
     AppLog.speak('live replay $id');
@@ -374,6 +535,16 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     if (_ended) return;
     _ended = true;
     _clock?.cancel();
+    for (final session in _sessions.toList()) {
+      session.cancel();
+    }
+    _sessions.clear();
+    for (final subscription in _subscriptions.toList()) {
+      await subscription.cancel();
+    }
+    _subscriptions.clear();
+    _lastVoiceAt.clear();
+    _audioBytes.clear();
     _active?.cancel();
     _active = null;
     await _input?.cancel();
@@ -391,4 +562,17 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     await _mic.dispose();
     return super.close();
   }
+}
+
+class _LivePlayback {
+  const _LivePlayback(
+    this.id,
+    this.transcription,
+    this.lastVoiceAt,
+    this.finalAt,
+  );
+  final int id;
+  final Transcription transcription;
+  final DateTime lastVoiceAt;
+  final DateTime finalAt;
 }
