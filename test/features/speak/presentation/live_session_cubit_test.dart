@@ -106,6 +106,13 @@ void main() {
       speaking.complete(const Success(null));
       await pumpEventQueue();
       expect(cubit.state.playing, isFalse);
+
+      speaking = Completer();
+      unawaited(cubit.replay(0));
+      await pumpEventQueue();
+      expect(cubit.state.playingId, 0);
+      verify(() => tts.speak('물 좀 주세요')).called(1);
+      speaking.complete(const Success(null));
     });
 
     test('marks unclear speech without speaking', () async {
