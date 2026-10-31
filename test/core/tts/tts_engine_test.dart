@@ -13,11 +13,15 @@ void main() {
     late _MockPlugin plugin;
     late FlutterTtsEngine engine;
     late void Function() completed;
+    late void Function() started;
     setUpAll(() {
       registerFallbackValue(() {});
     });
     setUp(() {
       plugin = _MockPlugin();
+      when(() => plugin.setStartHandler(any())).thenAnswer((call) {
+        started = call.positionalArguments.first as void Function();
+      });
       when(() => plugin.setCompletionHandler(any())).thenAnswer((call) {
         completed = call.positionalArguments.first as void Function();
       });
@@ -38,6 +42,21 @@ void main() {
       when(() => plugin.setVolume(0.8)).thenAnswer((_) async => 1);
       engine = FlutterTtsEngine(platform: VoicePlatform.ios, plugin: plugin);
     });
+    test(
+      'signals actual playback only when the native start event arrives',
+      () async {
+        var starts = 0;
+        final speech = engine.speak('물 주세요', onStarted: () => starts++);
+        await Future<void>.delayed(Duration.zero);
+        expect(starts, 0);
+        started();
+        expect(starts, 1);
+        completed();
+        await speech;
+        started();
+        expect(starts, 1);
+      },
+    );
     test(
       'waits for the native completion callback after dispatch',
       () async {

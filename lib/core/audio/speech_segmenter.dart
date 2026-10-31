@@ -39,7 +39,7 @@ class SpeechSegmenter {
     this.minSpeech = const Duration(milliseconds: 300),
     this.endSilence = const Duration(milliseconds: 1000),
     this.maxSegment = const Duration(seconds: 8),
-    this.preRoll = const Duration(milliseconds: 300),
+    this.preRoll = const Duration(milliseconds: 600),
   });
 
   /// Used until enough of the room has been heard.

@@ -10,7 +10,7 @@ import 'package:marieum_app/core/tts/tts_port.dart';
 import 'package:marieum_app/core/tts/tts_voice.dart';
 import 'package:marieum_app/core/tts/tts_voice_selector.dart';
 
-class TtsService implements TtsPort, TtsVoiceSelector {
+class TtsService implements PlaybackTtsPort, TtsVoiceSelector {
   TtsService({
     required this._engine,
     required this._audioSession,
@@ -91,17 +91,36 @@ class TtsService implements TtsPort, TtsVoiceSelector {
   }
 
   @override
-  Future<Result<void>> speak(String text) async {
+  Future<Result<void>> speak(String text) => _startSpeech(text);
+
+  @override
+  Future<Result<void>> speakWithPlayback(
+    String text, {
+    required void Function() onStarted,
+    required void Function() onEnded,
+  }) => _startSpeech(text, onStarted: onStarted, onEnded: onEnded);
+
+  Future<Result<void>> _startSpeech(
+    String text, {
+    void Function()? onStarted,
+    void Function()? onEnded,
+  }) async {
     if (_disposed || _stopping || _active != null) {
       return const FailureResult(TtsFailure('음성 서비스가 준비되지 않았습니다.'));
     }
     final active = Completer<Result<void>>();
     _active = active;
-    unawaited(_speak(text, active));
+    unawaited(_speak(text, active, onStarted: onStarted, onEnded: onEnded));
     return active.future;
   }
 
-  Future<void> _speak(String text, Completer<Result<void>> active) async {
+  Future<void> _speak(
+    String text,
+    Completer<Result<void>> active, {
+    void Function()? onStarted,
+    void Function()? onEnded,
+  }) async {
+    var started = false;
     try {
       if (!await isKoreanAvailable()) throw const TtsUnavailableFailure();
       if (active.isCompleted) return;
@@ -125,7 +144,18 @@ class TtsService implements TtsPort, TtsVoiceSelector {
       await _audioSession.configure();
       if (active.isCompleted) return;
       AppLog.tts('device ${voice?.name ?? 'default'} "$text"');
-      await _engine.speak(text);
+      if (onStarted == null) {
+        await _engine.speak(text);
+      } else {
+        await _engine.speak(
+          text,
+          onStarted: () {
+            if (active.isCompleted || started) return;
+            started = true;
+            onStarted();
+          },
+        );
+      }
       if (!active.isCompleted) active.complete(const Success<void>(null));
     } on Object catch (error) {
       AppLog.tts('device voice failed $error');
@@ -138,6 +168,7 @@ class TtsService implements TtsPort, TtsVoiceSelector {
         );
       }
     } finally {
+      if (started) onEnded?.call();
       if (identical(_active, active)) _active = null;
     }
   }

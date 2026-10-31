@@ -57,6 +57,32 @@ void main() {
     });
 
     test(
+      'forwards native playback boundaries instead of speech dispatch',
+      () async {
+        final completed = Completer<void>();
+        late void Function() nativeStart;
+        when(
+          () => engine.speak(any(), onStarted: any(named: 'onStarted')),
+        ).thenAnswer((call) {
+          nativeStart = call.namedArguments[#onStarted]! as void Function();
+          return completed.future;
+        });
+        final events = <String>[];
+        final speech = service.speakWithPlayback(
+          '물 주세요',
+          onStarted: () => events.add('start'),
+          onEnded: () => events.add('end'),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(events, isEmpty);
+        nativeStart();
+        expect(events, ['start']);
+        completed.complete();
+        expect(await speech, isA<Success<void>>());
+        expect(events, ['start', 'end']);
+      },
+    );
+    test(
       'applies mapping and reconfigures the session after the TTS plugin',
       () async {
         service

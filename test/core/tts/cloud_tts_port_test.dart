@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -15,7 +16,7 @@ class _MockClient extends Mock implements CloudTtsClient {}
 
 class _MockPlayer extends Mock implements CloudAudioPlayer {}
 
-class _MockDevice extends Mock implements TtsPort {}
+class _MockDevice extends Mock implements PlaybackTtsPort {}
 
 void main() {
   late Directory temp;
@@ -92,6 +93,91 @@ void main() {
       await port.speak('아파요');
       verify(() => device.speak('아파요')).called(1);
       verifyNever(() => client.synthesize(any(), any()));
+    });
+
+    test(
+      'live playback uses the device immediately without starting synthesis',
+      () async {
+        when(
+          () => device.speakWithPlayback(
+            any(),
+            onStarted: any(named: 'onStarted'),
+            onEnded: any(named: 'onEnded'),
+          ),
+        ).thenAnswer((call) async {
+          (call.namedArguments[#onStarted]! as void Function())();
+          (call.namedArguments[#onEnded]! as void Function())();
+          return const Success(null);
+        });
+        final events = <String>[];
+        expect(
+          await port.speakCached(
+            '새 문장',
+            onStarted: () => events.add('start'),
+            onEnded: () => events.add('end'),
+          ),
+          isA<Success<void>>(),
+        );
+        expect(events, ['start', 'end']);
+        verifyNever(() => client.synthesize(any(), any()));
+      },
+    );
+    test(
+      'live playback uses a cached cloud file and reports its actual start',
+      () async {
+        when(
+          () => client.synthesize('물 주세요', CloudVoice.female),
+        ).thenAnswer((_) async => wav);
+        await port.speak('물 주세요');
+        clearInteractions(client);
+        when(
+          () => player.play(
+            any(),
+            speed: any(named: 'speed'),
+            volume: any(named: 'volume'),
+            onStarted: any(named: 'onStarted'),
+          ),
+        ).thenAnswer((call) async {
+          (call.namedArguments[#onStarted]! as void Function())();
+        });
+        final events = <String>[];
+        await port.speakCached(
+          '물 주세요',
+          onStarted: () => events.add('start'),
+          onEnded: () => events.add('end'),
+        );
+        expect(events, ['start', 'end']);
+        verifyNever(() => client.synthesize(any(), any()));
+        verifyNever(
+          () => device.speakWithPlayback(
+            any(),
+            onStarted: any(named: 'onStarted'),
+            onEnded: any(named: 'onEnded'),
+          ),
+        );
+      },
+    );
+    test('live playback does not await an in-flight cloud prefetch', () async {
+      final synthesis = Completer<Uint8List>();
+      when(
+        () => client.synthesize('새 문장', CloudVoice.female),
+      ).thenAnswer((_) => synthesis.future);
+      when(
+        () => device.speakWithPlayback(
+          any(),
+          onStarted: any(named: 'onStarted'),
+          onEnded: any(named: 'onEnded'),
+        ),
+      ).thenAnswer((_) async => const Success(null));
+      port.prefetch(['새 문장']);
+      await pumpEventQueue();
+      expect(
+        await port.speakCached('새 문장', onStarted: () {}, onEnded: () {}),
+        isA<Success<void>>(),
+      );
+      expect(synthesis.isCompleted, isFalse);
+      synthesis.complete(wav);
+      await pumpEventQueue();
     });
 
     test('stop silences both voices', () async {

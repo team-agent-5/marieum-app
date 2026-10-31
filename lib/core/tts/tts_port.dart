@@ -11,3 +11,11 @@ abstract interface class TtsPort {
   Future<Result<void>> speak(String text);
   Future<Result<void>> stop();
 }
+
+abstract interface class PlaybackTtsPort implements TtsPort {
+  Future<Result<void>> speakWithPlayback(
+    String text, {
+    required void Function() onStarted,
+    required void Function() onEnded,
+  });
+}

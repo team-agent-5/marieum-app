@@ -29,7 +29,7 @@ class CloudTtsPort implements TtsPort {
   final CloudTtsClient _client;
   final CloudTtsCache _cache;
   final CloudAudioPlayer _player;
-  final TtsPort _device;
+  final PlaybackTtsPort _device;
   final List<String> Function() _warmTexts;
 
   TtsRate rate = TtsRate.normal;
@@ -55,6 +55,54 @@ class CloudTtsPort implements TtsPort {
   @override
   Future<bool> isKoreanAvailable() async =>
       enabled || await _device.isKoreanAvailable();
+
+  Future<Result<void>> speakCached(
+    String text, {
+    required void Function() onStarted,
+    required void Function() onEnded,
+  }) async {
+    _stopped = false;
+    File? file;
+    try {
+      file = await _cache.find(_voice.id, text);
+    } on Object {
+      file = null;
+    }
+    if (_stopped) return const FailureResult(TtsFailure('음성 재생이 중지되었습니다.'));
+    if (file != null) {
+      var started = false;
+      var succeeded = false;
+      try {
+        await _player.play(
+          file.path,
+          speed: switch (rate) {
+            TtsRate.slow => 0.85,
+            TtsRate.normal => 1.0,
+            TtsRate.fast => 1.15,
+          },
+          volume: TtsMapping.volume(volume),
+          onStarted: () {
+            if (_stopped || started) return;
+            started = true;
+            onStarted();
+          },
+        );
+        succeeded = true;
+      } on Object {
+        // A cached file may be unreadable; use the device voice below.
+      } finally {
+        if (started) onEnded();
+      }
+      if (_stopped) return const FailureResult(TtsFailure('음성 재생이 중지되었습니다.'));
+      if (succeeded) return const Success(null);
+    }
+    AppLog.tts('live device voice (no playable cache)');
+    return _device.speakWithPlayback(
+      text,
+      onStarted: onStarted,
+      onEnded: onEnded,
+    );
+  }
 
   @override
   Future<Result<void>> speak(String text) async {
