@@ -55,10 +55,12 @@ class _VoiceWaveState extends State<VoiceWave>
   @override
   Widget build(BuildContext context) => ExcludeSemantics(
     child: SizedBox(
+      width: double.infinity,
       height: widget.height,
       child: AnimatedBuilder(
         animation: _controller,
         builder: (context, _) => Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           mainAxisSize: MainAxisSize.min,
           children: [
             for (var i = 0; i < _ratios.length; i++)
