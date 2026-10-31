@@ -6,23 +6,28 @@ import 'package:marieum_app/core/audio/recorder.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
 import 'package:marieum_app/features/speak/presentation/bloc/utterance_bloc.dart';
 
-/// The single round control on the main screen. One tap starts recording,
-/// the next tap (or the 10-second limit) stops it, then it shows analysis.
+/// The single round control on the main screen. With [hold] it records while
+/// pressed (accuracy mode); otherwise a tap opens recording (live mode).
+/// Assistive technology always gets a tap to start and a tap to stop.
 class SpeakCta extends StatefulWidget {
   const SpeakCta({
     required this.phase,
     required this.elapsed,
     required this.level,
+    required this.hold,
     required this.onPressed,
-    required this.onCancel,
+    required this.onHoldStart,
+    required this.onHoldEnd,
     super.key,
   });
 
   final UtterancePhase phase;
   final Duration elapsed;
   final double level;
+  final bool hold;
   final VoidCallback onPressed;
-  final VoidCallback onCancel;
+  final VoidCallback onHoldStart;
+  final VoidCallback onHoldEnd;
 
   @override
   State<SpeakCta> createState() => _SpeakCtaState();
@@ -40,6 +45,20 @@ class _SpeakCtaState extends State<SpeakCta>
   );
 
   bool get _recording => widget.phase == UtterancePhase.recording;
+  int? _pointer;
+
+  void _down(PointerDownEvent event) {
+    if (_pointer != null || widget.phase != UtterancePhase.idle) return;
+    _pointer = event.pointer;
+    widget.onHoldStart();
+  }
+
+  void _up(PointerEvent event) {
+    if (event.pointer != _pointer) return;
+    _pointer = null;
+    widget.onHoldEnd();
+  }
+
   bool get _analyzing => widget.phase == UtterancePhase.analyzing;
 
   @override
@@ -82,13 +101,14 @@ class _SpeakCtaState extends State<SpeakCta>
     UtterancePhase.recording =>
       '녹음 중 ${widget.elapsed.inSeconds}초. 말씀이 끝나면 다시 눌러 주세요',
     UtterancePhase.analyzing => '분석하고 있어요',
-    _ => '말하기. 한 번 누르면 녹음을 시작해요',
+    _ => '말하기. 누르면 녹음을 시작해요',
   };
 
   String get _hint => switch (widget.phase) {
-    UtterancePhase.recording => '말씀이 끝나면 다시 눌러 주세요',
+    UtterancePhase.recording => '손을 떼면 끝나요',
     UtterancePhase.analyzing => '분석하고 있어요',
-    _ => '한 번 누르고 말씀하세요',
+    _ when widget.hold => '누르고 있는 동안 말씀하세요',
+    _ => '눌러서 말하기',
   };
 
   @override
@@ -107,75 +127,83 @@ class _SpeakCtaState extends State<SpeakCta>
           label: _semanticLabel,
           excludeSemantics: true,
           onTap: _analyzing ? null : widget.onPressed,
-          child: GestureDetector(
-            key: const ValueKey('speak_cta'),
-            behavior: HitTestBehavior.opaque,
-            onTap: _analyzing ? null : widget.onPressed,
-            child: SizedBox.square(
-              dimension: _outer,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  if (_recording) ...[
-                    AnimatedContainer(
-                      duration: reduceMotion
-                          ? Duration.zero
-                          : const Duration(milliseconds: 120),
-                      width: _ring + (reduceMotion ? 0 : widget.level * 30),
-                      height: _ring + (reduceMotion ? 0 : widget.level * 30),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: AppTokens.primary.withValues(
-                          alpha: .08 + widget.level * .14,
+          child: Listener(
+            onPointerDown: widget.hold ? _down : null,
+            onPointerUp: widget.hold ? _up : null,
+            onPointerCancel: widget.hold ? _up : null,
+            child: GestureDetector(
+              key: const ValueKey('speak_cta'),
+              behavior: HitTestBehavior.opaque,
+              onTap: _analyzing || widget.hold ? null : widget.onPressed,
+              child: SizedBox.square(
+                dimension: _outer,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    if (_recording) ...[
+                      AnimatedContainer(
+                        duration: reduceMotion
+                            ? Duration.zero
+                            : const Duration(milliseconds: 120),
+                        width: _ring + (reduceMotion ? 0 : widget.level * 30),
+                        height: _ring + (reduceMotion ? 0 : widget.level * 30),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: AppTokens.primary.withValues(
+                            alpha: .08 + widget.level * .14,
+                          ),
                         ),
                       ),
-                    ),
-                    SizedBox.square(
-                      dimension: _ring,
-                      child: CustomPaint(
-                        painter: _CountdownPainter(remaining: remaining),
+                      SizedBox.square(
+                        dimension: _ring,
+                        child: CustomPaint(
+                          painter: _CountdownPainter(remaining: remaining),
+                        ),
                       ),
-                    ),
-                  ] else
-                    AnimatedBuilder(
-                      animation: _breath,
-                      builder: (context, _) => Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          for (final (size, phase) in [
-                            (_outer, 0.0),
-                            (_ring, .5),
-                          ])
-                            _BreathRing(
-                              size: size,
-                              progress: (_breath.value + phase) % 1,
-                              animate: _breath.isAnimating,
-                            ),
-                        ],
+                    ] else
+                      AnimatedBuilder(
+                        animation: _breath,
+                        builder: (context, _) => Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            for (final (size, phase) in [
+                              (_outer, 0.0),
+                              (_ring, .5),
+                            ])
+                              _BreathRing(
+                                size: size,
+                                progress: (_breath.value + phase) % 1,
+                                animate: _breath.isAnimating,
+                              ),
+                          ],
+                        ),
                       ),
-                    ),
-                  AnimatedOpacity(
-                    duration: const Duration(milliseconds: 150),
-                    opacity: _analyzing ? .72 : 1,
-                    child: Container(
-                      width: _button,
-                      height: _button,
-                      decoration: BoxDecoration(
-                        color: AppTokens.primaryStrong,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: AppTokens.primary, width: 9),
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Color(0x383564D8),
-                            blurRadius: 30,
-                            offset: Offset(0, 14),
+                    AnimatedOpacity(
+                      duration: const Duration(milliseconds: 150),
+                      opacity: _analyzing ? .72 : 1,
+                      child: Container(
+                        width: _button,
+                        height: _button,
+                        decoration: BoxDecoration(
+                          color: AppTokens.primaryStrong,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: AppTokens.primary,
+                            width: 9,
                           ),
-                        ],
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Color(0x383564D8),
+                              blurRadius: 30,
+                              offset: Offset(0, 14),
+                            ),
+                          ],
+                        ),
+                        child: _content(),
                       ),
-                      child: _content(),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -187,24 +215,7 @@ class _SpeakCtaState extends State<SpeakCta>
             style: const TextStyle(fontSize: 13, color: AppTokens.ink2),
           ),
         ),
-        SizedBox(
-          height: 44,
-          child: _recording
-              ? TextButton(
-                  key: const ValueKey('speak_cancel'),
-                  onPressed: widget.onCancel,
-                  style: TextButton.styleFrom(
-                    minimumSize: const Size(64, 44),
-                    foregroundColor: AppTokens.ink2,
-                    textStyle: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  child: const Text('취소'),
-                )
-              : null,
-        ),
+        const SizedBox(height: 44),
       ],
     );
   }

@@ -266,6 +266,7 @@ void main() {
       'retry rejects the shown candidates and records again',
       build: build,
       seed: () => const UtteranceState(
+        mode: SpeakMode.live,
         phase: UtterancePhase.suggesting,
         transcription: _clear,
         suggestions: _suggestions,
@@ -315,10 +316,10 @@ void main() {
         return build();
       },
       act: (bloc) async {
-        bloc.add(const UtteranceButtonPressed(SpeakMode.precise));
+        bloc.add(const UtteranceButtonPressed(SpeakMode.live));
         for (var attempt = 0; attempt < 3; attempt++) {
           await settle();
-          bloc.add(const UtteranceButtonPressed(SpeakMode.precise));
+          bloc.add(const UtteranceButtonPressed(SpeakMode.live));
           await settle();
           if (attempt < 2) bloc.add(const UtteranceRetryPressed());
         }
@@ -474,6 +475,58 @@ void main() {
     });
   });
 
+  group('hold to record', () {
+    test('holding records and releasing stops and analyzes', () async {
+      var now = DateTime(2026, 10, 31, 12);
+      final bloc = UtteranceBloc(
+        repository: repository,
+        createRecorder: newRecorder,
+        haptics: haptics,
+        now: () => now,
+      );
+      addTearDown(bloc.close);
+      bloc.add(const UtteranceHoldStarted(SpeakMode.precise));
+      await settle();
+      expect(bloc.state.phase, UtterancePhase.recording);
+      now = now.add(const Duration(seconds: 2));
+      bloc.add(const UtteranceHoldEnded());
+      await settle();
+      await settle();
+      verify(recorders.single.stop).called(1);
+      expect(bloc.state.phase, UtterancePhase.suggesting);
+    });
+
+    test('a very short hold is dropped without analysis', () async {
+      final now = DateTime(2026, 10, 31, 12);
+      final bloc = UtteranceBloc(
+        repository: repository,
+        createRecorder: newRecorder,
+        haptics: haptics,
+        now: () => now,
+      );
+      addTearDown(bloc.close);
+      bloc.add(const UtteranceHoldStarted(SpeakMode.precise));
+      await settle();
+      bloc.add(const UtteranceHoldEnded());
+      await settle();
+      expect(bloc.state.phase, UtterancePhase.idle);
+      verifyNever(() => repository.transcribe(any()));
+    });
+
+    blocTest<UtteranceBloc, UtteranceState>(
+      'retry in accuracy mode waits for the next hold and keeps attempts',
+      build: build,
+      seed: () => const UtteranceState(
+        phase: UtterancePhase.reask,
+        transcription: _unclear,
+        reaskCount: 1,
+      ),
+      act: (bloc) => bloc.add(const UtteranceRetryPressed()),
+      expect: () => const [UtteranceState(reaskCount: 1)],
+      verify: (_) => expect(recorders, isEmpty),
+    );
+  });
+
   group('live text', () {
     late _MockTranscriber transcriber;
     late StreamController<String> partials;
@@ -488,6 +541,9 @@ void main() {
       addTearDown(chunks.close);
       when(() => transcriber.partials).thenAnswer((_) => partials.stream);
       when(transcriber.stop).thenAnswer((_) async {});
+      when(
+        () => repository.bypass(any(), latency: any(named: 'latency')),
+      ).thenAnswer((_) async => const Success('물 좀 주세요'));
     });
 
     UtteranceBloc buildLive() => UtteranceBloc(
@@ -505,7 +561,7 @@ void main() {
       when(transcriber.start).thenAnswer((_) async => true);
       final bloc = buildLive();
       addTearDown(bloc.close);
-      bloc.add(const UtteranceButtonPressed(SpeakMode.precise));
+      bloc.add(const UtteranceButtonPressed(SpeakMode.live));
       await settle();
       expect(bloc.state.liveTextAvailable, isTrue);
 
@@ -516,7 +572,7 @@ void main() {
       verify(() => transcriber.append(pcm)).called(1);
       expect(bloc.state.liveText, '물');
 
-      bloc.add(const UtteranceButtonPressed(SpeakMode.precise));
+      bloc.add(const UtteranceButtonPressed(SpeakMode.live));
       await settle();
       await settle();
       verify(transcriber.stop).called(1);
@@ -529,7 +585,7 @@ void main() {
       when(transcriber.start).thenAnswer((_) async => false);
       final bloc = buildLive();
       addTearDown(bloc.close);
-      bloc.add(const UtteranceButtonPressed(SpeakMode.precise));
+      bloc.add(const UtteranceButtonPressed(SpeakMode.live));
       await settle();
       expect(bloc.state.phase, UtterancePhase.recording);
       expect(bloc.state.liveTextAvailable, isFalse);
@@ -542,7 +598,7 @@ void main() {
       when(transcriber.start).thenAnswer((_) async => true);
       final bloc = buildLive();
       addTearDown(bloc.close);
-      bloc.add(const UtteranceButtonPressed(SpeakMode.precise));
+      bloc.add(const UtteranceButtonPressed(SpeakMode.live));
       await settle();
       bloc.add(const UtteranceCancelPressed());
       await settle();

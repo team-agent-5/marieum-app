@@ -90,7 +90,7 @@ void main() {
   }
 
   group('main screen while recording', () {
-    testWidgets('shows timer, guidance and cancel, and locks other controls', (
+    testWidgets('shows timer and guidance and locks other controls', (
       tester,
     ) async {
       await pump(
@@ -101,8 +101,8 @@ void main() {
         ),
       );
       expect(find.text('0:03'), findsOneWidget);
-      expect(find.text('말씀이 끝나면 다시 눌러 주세요'), findsOneWidget);
-      expect(find.text('취소'), findsOneWidget);
+      expect(find.text('손을 떼면 끝나요'), findsOneWidget);
+      expect(find.byType(RecordingView), findsNothing);
 
       await tester.tap(find.text('요청'), warnIfMissed: false);
       await tester.tap(find.text('실시간 모드'), warnIfMissed: false);
@@ -110,17 +110,24 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('0:03'), findsOneWidget);
       verifyNever(() => bloc.add(any()));
-
-      await tester.tap(find.text('취소'));
-      verify(() => bloc.add(const UtteranceCancelPressed())).called(1);
     });
 
-    testWidgets('tapping the button again stops recording', (tester) async {
-      await pump(tester, const UtteranceState(phase: UtterancePhase.recording));
-      await tester.tap(find.byKey(const ValueKey('speak_cta')));
+    testWidgets('accuracy mode records while the button is held', (
+      tester,
+    ) async {
+      await pump(tester, const UtteranceState());
+      expect(find.text('누르고 있는 동안 말씀하세요'), findsOneWidget);
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(const ValueKey('speak_cta'))),
+      );
       verify(
-        () => bloc.add(const UtteranceButtonPressed(SpeakMode.precise)),
+        () => bloc.add(const UtteranceHoldStarted(SpeakMode.precise)),
       ).called(1);
+      await gesture.up();
+      verify(() => bloc.add(const UtteranceHoldEnded())).called(1);
+      verifyNever(
+        () => bloc.add(const UtteranceButtonPressed(SpeakMode.precise)),
+      );
     });
 
     testWidgets('ignores taps while analyzing', (tester) async {
@@ -151,21 +158,28 @@ void main() {
       await show(
         tester,
         const UtteranceState(
+          mode: SpeakMode.live,
           phase: UtterancePhase.recording,
           elapsed: Duration(seconds: 2),
         ),
       );
       expect(find.byType(RecordingView), findsOneWidget);
       expect(find.text('내 목소리로 말하기'), findsOneWidget);
-      expect(find.text('정확도 모드'), findsWidgets);
+      expect(find.text('실시간 모드'), findsWidgets);
       expect(find.text('00:02 / 00:10'), findsOneWidget);
 
       await tester.tap(find.byKey(const ValueKey('recording_finish')));
       verify(
-        () => bloc.add(const UtteranceButtonPressed(SpeakMode.precise)),
+        () => bloc.add(const UtteranceButtonPressed(SpeakMode.live)),
       ).called(1);
 
-      await show(tester, const UtteranceState(phase: UtterancePhase.analyzing));
+      await show(
+        tester,
+        const UtteranceState(
+          mode: SpeakMode.live,
+          phase: UtterancePhase.analyzing,
+        ),
+      );
       expect(find.byType(RecordingView), findsOneWidget);
       expect(find.text('알아듣고 있어요'), findsOneWidget);
 
@@ -178,6 +192,7 @@ void main() {
       await show(
         tester,
         const UtteranceState(
+          mode: SpeakMode.live,
           phase: UtterancePhase.recording,
           liveTextAvailable: true,
           liveText: '물',
@@ -189,6 +204,7 @@ void main() {
       await show(
         tester,
         const UtteranceState(
+          mode: SpeakMode.live,
           phase: UtterancePhase.recording,
           liveTextAvailable: true,
           liveText: '물 주세요',
@@ -203,7 +219,13 @@ void main() {
 
     testWidgets('explains when live text is unavailable', (tester) async {
       await pump(tester, const UtteranceState());
-      await show(tester, const UtteranceState(phase: UtterancePhase.recording));
+      await show(
+        tester,
+        const UtteranceState(
+          mode: SpeakMode.live,
+          phase: UtterancePhase.recording,
+        ),
+      );
       expect(find.text('말씀을 마치면 글자로 바꿔 드려요'), findsOneWidget);
       expect(find.byType(TypedTranscript), findsNothing);
     });
