@@ -15,7 +15,10 @@ class SettingsPage extends StatelessWidget {
       context,
     ).showSnackBar(SnackBar(content: Text(state.failure!.message))),
     builder: (context, state) {
-      return SettingsView(settings: state.settings);
+      return SettingsView(
+        settings: state.settings,
+        cloudVoiceAvailable: state.cloudVoiceAvailable,
+      );
     },
   );
 }

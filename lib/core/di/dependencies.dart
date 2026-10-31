@@ -16,6 +16,7 @@ import 'package:marieum_app/core/storage/prefs_store.dart';
 import 'package:marieum_app/core/storage/secure_token_store.dart';
 import 'package:marieum_app/core/storage/sequence_store.dart';
 import 'package:marieum_app/core/storage/token_vault.dart';
+import 'package:marieum_app/core/tts/cloud_tts_port.dart';
 import 'package:marieum_app/core/tts/tts_port.dart';
 import 'package:marieum_app/core/tts/tts_service.dart';
 import 'package:marieum_app/features/auth/data/datasources/auth_data_source.dart';
@@ -155,6 +156,7 @@ Future<GetIt> configureDependencies({
     )
     ..registerLazySingleton<UtteranceRepository>(
       () => UtteranceRepositoryImpl(
+        prefetchSpeech: (texts) => dependencies<CloudTtsPort>().prefetch(texts),
         source: dependencies<UtteranceDataSource>(),
         sequence: dependencies<SequenceStore>(),
         queue: SelectionLogQueue(
@@ -172,7 +174,14 @@ Future<GetIt> configureDependencies({
         haptics: dependencies<VoiceHaptics>(),
       ),
     );
-  registerVoiceDependencies(dependencies);
+  registerVoiceDependencies(
+    dependencies,
+    cloudApiKey: config.copaApiKey,
+    warmTexts: () => [
+      for (final phrase in dependencies<QuickPhraseRepository>().load())
+        phrase.text,
+    ],
+  );
   dependencies
     ..registerLazySingleton<HistoryDataSource>(
       () => RemoteHistoryDataSource(dependencies<ApiClient>()),
@@ -197,6 +206,10 @@ Future<GetIt> configureDependencies({
           dependencies<TtsService>()
             ..rate = settings.rate
             ..volume = settings.volume;
+          dependencies<CloudTtsPort>()
+            ..rate = settings.rate
+            ..volume = settings.volume
+            ..voice = settings.cloudVoice;
           unawaited(dependencies<TtsService>().selectVoice(settings.voiceId));
         },
       ),
@@ -205,6 +218,7 @@ Future<GetIt> configureDependencies({
       SettingsCubit(
         dependencies<SettingsRepository>(),
         voices: dependencies<TtsService>(),
+        cloudVoiceAvailable: dependencies<CloudTtsPort>().enabled,
       ),
       dispose: (cubit) => cubit.close(),
     );

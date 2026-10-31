@@ -1,0 +1,137 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:marieum_app/core/error/failure.dart';
+import 'package:marieum_app/core/error/result.dart';
+import 'package:marieum_app/core/tts/cloud_audio_player.dart';
+import 'package:marieum_app/core/tts/cloud_tts_cache.dart';
+import 'package:marieum_app/core/tts/cloud_tts_client.dart';
+import 'package:marieum_app/core/tts/cloud_voice.dart';
+import 'package:marieum_app/core/tts/tts_mapping.dart';
+import 'package:marieum_app/core/tts/tts_port.dart';
+
+/// Speaks with the chosen cloud voice and falls back to the device voice when
+/// the gateway is not configured, slow or failing, so speech never goes
+/// silent.
+class CloudTtsPort implements TtsPort {
+  CloudTtsPort({
+    required this._client,
+    required this._cache,
+    required this._player,
+    required this._device,
+    required this._warmTexts,
+  });
+
+  /// Longest wait for an uncached sentence before using the device voice.
+  static const fetchLimit = Duration(seconds: 4);
+
+  final CloudTtsClient _client;
+  final CloudTtsCache _cache;
+  final CloudAudioPlayer _player;
+  final TtsPort _device;
+  final List<String> Function() _warmTexts;
+
+  TtsRate rate = TtsRate.normal;
+  TtsVolume volume = TtsVolume.normal;
+  CloudVoice _voice = CloudVoice.female;
+  bool _warmed = false;
+  bool _stopped = false;
+  final _pending = <String, Future<File?>>{};
+
+  bool get enabled => _client.isConfigured;
+
+  CloudVoice get voice => _voice;
+
+  /// Setting the voice, including the first time, prepares the quick
+  /// phrases in that voice.
+  set voice(CloudVoice value) {
+    if (value == _voice && _warmed) return;
+    _voice = value;
+    _warmed = true;
+    prefetch(_warmTexts());
+  }
+
+  @override
+  Future<bool> isKoreanAvailable() async =>
+      enabled || await _device.isKoreanAvailable();
+
+  @override
+  Future<Result<void>> speak(String text) async {
+    if (!enabled) return _device.speak(text);
+    _stopped = false;
+    File? file;
+    try {
+      file = await _audioFor(text, _voice).timeout(fetchLimit);
+    } on Object {
+      file = null;
+    }
+    if (_stopped) {
+      return const FailureResult(TtsFailure('음성 재생이 중지되었습니다.'));
+    }
+    if (file == null) return _device.speak(text);
+    try {
+      await _player.play(
+        file.path,
+        speed: switch (rate) {
+          TtsRate.slow => 0.85,
+          TtsRate.normal => 1.0,
+          TtsRate.fast => 1.15,
+        },
+        volume: TtsMapping.volume(volume),
+      );
+      return _stopped
+          ? const FailureResult(TtsFailure('음성 재생이 중지되었습니다.'))
+          : const Success(null);
+    } on Object {
+      if (_stopped) {
+        return const FailureResult(TtsFailure('음성 재생이 중지되었습니다.'));
+      }
+      return _device.speak(text);
+    }
+  }
+
+  @override
+  Future<Result<void>> stop() async {
+    _stopped = true;
+    try {
+      await _player.stop();
+    } on Object {
+      // The device voice is stopped below either way.
+    }
+    return _device.stop();
+  }
+
+  /// Synthesizes sentences ahead of time so a later tap plays at once.
+  void prefetch(Iterable<String> texts) {
+    if (!enabled) return;
+    final voice = _voice;
+    unawaited(() async {
+      for (final text in texts.toSet()) {
+        try {
+          await _audioFor(text, voice);
+        } on Object {
+          // Prefetch is best effort.
+        }
+      }
+    }());
+  }
+
+  Future<File?> _audioFor(String text, CloudVoice voice) {
+    final key = CloudTtsCache.keyFor(voice.id, text);
+    final pending = _pending[key];
+    if (pending != null) return pending;
+    final future = () async {
+      try {
+        final cached = await _cache.find(voice.id, text);
+        if (cached != null) return cached;
+        final audio = await _client.synthesize(text, voice);
+        return await _cache.save(voice.id, text, audio);
+      } finally {
+        // Removed after this turn so concurrent callers share the request.
+        scheduleMicrotask(() => unawaited(_pending.remove(key)));
+      }
+    }();
+    // Callers still see the error; only the shared copy is marked handled.
+    return _pending[key] = future..ignore();
+  }
+}
