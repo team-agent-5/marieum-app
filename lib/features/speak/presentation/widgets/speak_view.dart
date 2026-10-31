@@ -18,51 +18,58 @@ class SpeakView extends StatelessWidget {
   Widget build(
     BuildContext context,
   ) => BlocBuilder<SpeakModeCubit, SpeakModeState>(
-    builder: (context, state) => LayoutBuilder(
-      builder: (context, constraints) => SingleChildScrollView(
-        child: SizedBox(
-          height: math.max(
-            620 + (MediaQuery.textScalerOf(context).scale(16) / 16 - 1) * 260,
-            constraints.maxHeight,
-          ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
-            child: Column(
-              children: [
-                _Greeting(mode: state.mode),
-                const SizedBox(height: 14),
-                SizedBox(
-                  width: double.infinity,
-                  child: AdaptiveSegmentedControl<SpeakMode>(
-                    value: state.mode,
-                    selectedBackground: state.mode == SpeakMode.live
-                        ? AppTokens.warningSoft
-                        : null,
-                    onChanged: (mode) =>
-                        unawaited(context.read<SpeakModeCubit>().select(mode)),
-                    children: {
-                      for (final mode in SpeakMode.values)
-                        mode: _ModeLabel(
-                          mode: mode,
-                          selected: state.mode == mode,
-                        ),
-                    },
-                  ),
-                ),
-                Expanded(
-                  child: Center(
-                    child: SpeakCta(
-                      onLongPress: () {
-                        final mode = context.read<SpeakModeCubit>().state.mode;
-                        unawaited(
-                          context.push<void>('/speak/utterance', extra: mode),
-                        );
+    builder: (context, state) => SafeArea(
+      bottom: false,
+      child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          child: SizedBox(
+            height: math.max(
+              620 + (MediaQuery.textScalerOf(context).scale(16) / 16 - 1) * 260,
+              constraints.maxHeight,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
+              child: Column(
+                children: [
+                  _Greeting(mode: state.mode),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    child: AdaptiveSegmentedControl<SpeakMode>(
+                      value: state.mode,
+                      selectedBackground: state.mode == SpeakMode.live
+                          ? AppTokens.warningSoft
+                          : null,
+                      onChanged: (mode) => unawaited(
+                        context.read<SpeakModeCubit>().select(mode),
+                      ),
+                      children: {
+                        for (final mode in SpeakMode.values)
+                          mode: _ModeLabel(
+                            mode: mode,
+                            selected: state.mode == mode,
+                          ),
                       },
                     ),
                   ),
-                ),
-                const QuickPhraseCarousel(),
-              ],
+                  Expanded(
+                    child: Center(
+                      child: SpeakCta(
+                        onLongPress: () {
+                          final mode = context
+                              .read<SpeakModeCubit>()
+                              .state
+                              .mode;
+                          unawaited(
+                            context.push<void>('/speak/utterance', extra: mode),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  const QuickPhraseCarousel(),
+                ],
+              ),
             ),
           ),
         ),
