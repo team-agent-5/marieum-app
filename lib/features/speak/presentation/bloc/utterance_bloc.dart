@@ -21,7 +21,8 @@ enum UtterancePhase {
   suggesting,
   reask,
   noMatch,
-  speaking;
+  speaking,
+  failed;
 
   /// Phases where the main screen must ignore every other control.
   bool get locksScreen => this == recording || this == analyzing;
@@ -31,7 +32,8 @@ enum UtterancePhase {
       this == suggesting ||
       this == reask ||
       this == noMatch ||
-      this == speaking;
+      this == speaking ||
+      this == failed;
 }
 
 sealed class UtteranceEvent extends Equatable {
@@ -127,7 +129,7 @@ class UtteranceState extends Equatable {
   final int reaskCount;
   final String? spokenText;
 
-  /// One-off message for a snackbar; `noticeId` changes each time.
+  /// Why the flow failed, shown by the failure screen.
   final Failure? notice;
   final int noticeId;
 
@@ -173,6 +175,7 @@ class UtteranceState extends Equatable {
     selected,
     reaskCount,
     spokenText,
+    notice,
     noticeId,
   ];
 }
@@ -403,7 +406,8 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
             phase: UtterancePhase.suggesting,
             transcription: transcription,
             suggestions: value,
-            selected: () => null,
+            selected: () =>
+                value.candidates.length == 1 ? value.candidates.single : null,
           ),
         );
       case Success(:final value):
@@ -500,6 +504,7 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
         );
       case UtterancePhase.reask when !state.reaskExhausted:
       case UtterancePhase.noMatch:
+      case UtterancePhase.failed:
         break;
       case _:
         return;
@@ -519,16 +524,17 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
     emit(UtteranceState(mode: state.mode, noticeId: state.noticeId));
   }
 
+  /// Shows the failure screen in the sheet; `notice` carries the reason.
   void _notify(
     Emitter<UtteranceState> emit,
     Failure failure,
     UtteranceState next,
   ) => emit(
     UtteranceState(
-      phase: next.phase,
+      phase: UtterancePhase.failed,
       mode: next.mode,
       notice: failure,
-      noticeId: state.noticeId + 1,
+      noticeId: state.noticeId,
     ),
   );
 

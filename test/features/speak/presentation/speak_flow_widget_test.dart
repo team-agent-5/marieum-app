@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:marieum_app/core/error/failure.dart';
 import 'package:marieum_app/features/settings/domain/entities/app_settings.dart';
 import 'package:marieum_app/features/settings/presentation/cubit/settings_cubit.dart';
 import 'package:marieum_app/features/speak/domain/entities/speak_mode.dart';
@@ -205,6 +206,42 @@ void main() {
   });
 
   group('candidate sheet', () {
+    testWidgets('one clear candidate is shown large and spoken directly', (
+      tester,
+    ) async {
+      await pump(tester, const UtteranceState());
+      const only = Candidate(rank: 1, text: '오늘 좀 피곤해요', score: 0.98);
+      await emit(
+        tester,
+        const UtteranceState(
+          phase: UtterancePhase.suggesting,
+          transcription: _transcription,
+          suggestions: Suggestions(traceId: 's1', candidates: [only]),
+          selected: only,
+        ),
+      );
+      expect(find.text('이렇게 말씀드릴게요'), findsOneWidget);
+      expect(find.text('오늘 좀 피곤해요'), findsOneWidget);
+      expect(find.textContaining('들린 내용'), findsNothing);
+
+      await tester.tap(find.byKey(const ValueKey('utterance_confirm')));
+      verify(() => bloc.add(const UtteranceConfirmPressed())).called(1);
+    });
+
+    testWidgets('failure shows the failure screen with retry', (tester) async {
+      await pump(tester, const UtteranceState());
+      await emit(
+        tester,
+        const UtteranceState(
+          phase: UtterancePhase.failed,
+          notice: NetworkFailure(),
+        ),
+      );
+      expect(find.text('서버에 연결하지 못했어요'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('failed_retry')));
+      verify(() => bloc.add(const UtteranceRetryPressed())).called(1);
+    });
+
     testWidgets('shows heard text, reasons and needs a pick before speaking', (
       tester,
     ) async {
@@ -212,7 +249,7 @@ void main() {
       await emit(tester, _suggesting);
 
       expect(find.text('이렇게 말씀하시려는 거예요?'), findsOneWidget);
-      expect(find.text('들린 내용 · 물 좀 주세요'), findsOneWidget);
+      expect(find.text('들린 내용: "물 좀 주세요"'), findsOneWidget);
       expect(find.text('자주 쓰는 말'), findsOneWidget);
       expect(find.text('이 시간대에 자주 선택'), findsOneWidget);
       expect(find.byKey(const ValueKey('utterance_confirm')), findsNothing);

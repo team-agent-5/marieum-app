@@ -67,15 +67,13 @@ class Suggestions extends Equatable {
   const Suggestions({
     required this.traceId,
     required this.candidates,
-    this.fallbackHint,
   });
 
   final String traceId;
   final List<Candidate> candidates;
-  final String? fallbackHint;
 
-  bool get isEmpty => candidates.isEmpty || fallbackHint != null;
+  bool get isEmpty => candidates.isEmpty;
 
   @override
-  List<Object?> get props => [traceId, candidates, fallbackHint];
+  List<Object?> get props => [traceId, candidates];
 }

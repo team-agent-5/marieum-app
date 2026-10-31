@@ -40,6 +40,7 @@ class UtteranceRepositoryImpl implements UtteranceRepository {
       _source.suggest({
         'patient_prefix': _clip(transcription.finalTranscript, 200),
         'final_transcript': _clip(transcription.finalTranscript, 400),
+        'asr_confidence': transcription.asrConfidence.clamp(0, 1),
         'source': 'voice',
         'trace_id': transcription.traceId,
         'previous_log_id': _previousLogId,

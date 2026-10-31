@@ -350,7 +350,7 @@ void main() {
       build: () {
         when(() => repository.suggest(any())).thenAnswer(
           (_) async => const Success(
-            Suggestions(traceId: 's2', candidates: [], fallbackHint: 'preset'),
+            Suggestions(traceId: 's2', candidates: []),
           ),
         );
         return build();
@@ -382,7 +382,7 @@ void main() {
     );
 
     blocTest<UtteranceBloc, UtteranceState>(
-      'reports a network failure and returns to idle',
+      'shows the failure screen on a network failure',
       build: () {
         when(
           () => repository.transcribe(any()),
@@ -396,13 +396,13 @@ void main() {
         await settle();
       },
       verify: (bloc) {
-        expect(bloc.state.phase, UtterancePhase.idle);
+        expect(bloc.state.phase, UtterancePhase.failed);
         expect(bloc.state.notice, isA<NetworkFailure>());
       },
     );
 
     blocTest<UtteranceBloc, UtteranceState>(
-      'reports a denied microphone and stays idle',
+      'shows the failure screen when the microphone is denied',
       build: () => UtteranceBloc(
         repository: repository,
         createRecorder: () {
@@ -417,7 +417,7 @@ void main() {
       ),
       act: (bloc) => bloc.add(const UtteranceButtonPressed(SpeakMode.precise)),
       verify: (bloc) {
-        expect(bloc.state.phase, UtterancePhase.idle);
+        expect(bloc.state.phase, UtterancePhase.failed);
         expect(
           bloc.state.notice,
           isA<PermissionFailure>().having(

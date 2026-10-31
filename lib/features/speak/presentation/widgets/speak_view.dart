@@ -4,7 +4,6 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:marieum_app/app/navigation/push_drawer.dart';
-import 'package:marieum_app/core/error/failure.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
 import 'package:marieum_app/core/ui/adaptive/adaptive_segmented_control.dart';
 import 'package:marieum_app/features/auth/domain/entities/auth_status.dart';
@@ -19,7 +18,6 @@ import 'package:marieum_app/features/speak/presentation/widgets/quick_phrase_car
 import 'package:marieum_app/features/speak/presentation/widgets/recording_view.dart';
 import 'package:marieum_app/features/speak/presentation/widgets/speak_cta.dart';
 import 'package:marieum_app/features/speak/presentation/widgets/utterance_sheet.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 class SpeakView extends StatefulWidget {
   const SpeakView({super.key});
@@ -99,34 +97,12 @@ class _SpeakViewState extends State<SpeakView> {
     if (picked != null && context.mounted) playQuickPhrase(context, picked);
   }
 
-  void _showNotice(BuildContext context, Failure failure) {
-    final permanent = failure is PermissionFailure && failure.permanent;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(failure.message),
-          action: permanent
-              ? SnackBarAction(
-                  label: '설정 열기',
-                  onPressed: () => unawaited(openAppSettings()),
-                )
-              : null,
-        ),
-      );
-  }
-
   @override
   Widget build(BuildContext context) => MultiBlocListener(
     listeners: [
       BlocListener<UtteranceBloc, UtteranceState>(
         listenWhen: (previous, current) => previous.phase != current.phase,
         listener: _onUtterance,
-      ),
-      BlocListener<UtteranceBloc, UtteranceState>(
-        listenWhen: (previous, current) =>
-            current.notice != null && previous.noticeId != current.noticeId,
-        listener: (context, state) => _showNotice(context, state.notice!),
       ),
     ],
     child: BlocBuilder<SpeakModeCubit, SpeakModeState>(
