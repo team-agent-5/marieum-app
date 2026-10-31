@@ -38,7 +38,8 @@ class ApiClient {
 
   static Duration timeoutFor(String path) => switch (path) {
     '/phrase/transcribe' => const Duration(seconds: 8),
-    '/phrase/suggest' => const Duration(seconds: 3),
+    // Suggestions are written by an LLM on the server and often pass 3 s.
+    '/phrase/suggest' => const Duration(seconds: 8),
     _ => const Duration(seconds: 5),
   };
 

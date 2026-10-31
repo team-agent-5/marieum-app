@@ -427,6 +427,31 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
             suggestions: value,
           ),
         );
+      case FailureResult(:final failure) when !transcription.isLowConfidence:
+        // Without suggestions the patient can still say what was heard.
+        AppLog.speak('suggest unavailable ${failure.runtimeType}, heard only');
+        final heard = Suggestions(
+          traceId: transcription.traceId,
+          mode: SuggestionMode.single,
+          candidates: [
+            Candidate(
+              rank: 1,
+              text: transcription.finalTranscript,
+              score: transcription.asrConfidence,
+              reasonDisplay: '방금 들린 그대로',
+              source: CandidateSource.asrVerbatim,
+            ),
+          ],
+        );
+        _candidatesShownAt = _now();
+        emit(
+          state.copyWith(
+            phase: UtterancePhase.suggesting,
+            transcription: transcription,
+            suggestions: heard,
+            selected: () => heard.candidates.single,
+          ),
+        );
       case FailureResult(failure: TimeoutFailure()):
         emit(
           state.copyWith(
