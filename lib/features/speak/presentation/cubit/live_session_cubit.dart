@@ -145,12 +145,12 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   static const speakConfidence = 0.6;
 
   /// How long after the app's voice ends its echo is still kept out.
-  static const muteTail = Duration(milliseconds: 600);
+  static const muteTail = Duration(milliseconds: 300);
 
-  /// Sends silence instead of the microphone while the app speaks. Android
-  /// cannot cancel the app's own media playback from the input, so without
-  /// this the server hears the app and the sentence is spoken again and
-  /// again.
+  /// Sends silence instead of the microphone while the app's voice plays.
+  /// Android cannot cancel the app's own media playback from the input, so
+  /// without this the server hears the app and the sentence is spoken over
+  /// and over.
   final bool muteWhileSpeaking;
 
   final MicStream _mic;
@@ -173,6 +173,10 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   bool _ended = false;
   bool _speechBusy = false;
   DateTime? _mutedUntil;
+
+  /// Whether the app's voice is actually coming out of the speaker, as
+  /// opposed to still being prepared.
+  bool _sounding = false;
   DateTime? _warmUntil;
 
   /// The sentence the server is reading now, shown as it changes.
@@ -239,7 +243,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     final mutedUntil = _mutedUntil;
     final muted =
         muteWhileSpeaking &&
-        (_speechBusy || (mutedUntil != null && _now().isBefore(mutedUntil)));
+        (_sounding || (mutedUntil != null && _now().isBefore(mutedUntil)));
     _conversation?.add(muted ? Uint8List(chunk.length) : chunk);
     emit(
       state.copyWith(
@@ -417,6 +421,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
           entry = (text: text, until: null);
           _spoken.add(entry!);
           emit(state.copyWith(playingId: () => id));
+          _sounding = true;
           onStarted?.call(at);
         },
         onEnded: finishPlayback,
@@ -426,7 +431,8 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     } finally {
       finishPlayback();
       _speechBusy = false;
-      _mutedUntil = _now().add(muteTail);
+      if (_sounding) _mutedUntil = _now().add(muteTail);
+      _sounding = false;
     }
   }
 
