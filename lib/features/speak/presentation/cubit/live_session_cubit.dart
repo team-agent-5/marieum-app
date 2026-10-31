@@ -139,6 +139,10 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   /// level and gain settle; speech in it came out weak or clipped.
   static const warmUp = Duration(milliseconds: 300);
 
+  /// Below this a sentence is not spoken aloud: in live mode nobody checks
+  /// it first, and low readings were mostly wrong sentences.
+  static const speakConfidence = 0.6;
+
   final MicStream _mic;
   final LiveStream _stream;
   final UtteranceRepository _repository;
@@ -153,7 +157,8 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   LiveConversation? _conversation;
   StreamSubscription<LiveEvent>? _events;
   Timer? _clock;
-  Future<void> _queue = Future.value();
+  final _pending = <_LivePlayback>[];
+  bool _draining = false;
   int _nextId = 0;
   bool _ended = false;
   bool _speechBusy = false;
@@ -277,6 +282,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
       return;
     }
     if (transcription.isLowConfidence ||
+        transcription.asrConfidence < speakConfidence ||
         transcription.finalTranscript.contains('�')) {
       _show(
         id,
@@ -286,8 +292,25 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
       return;
     }
     _show(id, LiveSegmentStatus.done, transcription.finalTranscript);
-    final phrase = _LivePlayback(id, transcription, lastVoiceAt, finalAt);
-    _queue = _queue.then((_) => _speakAndLog(phrase));
+    _pending.add(_LivePlayback(id, transcription, lastVoiceAt, finalAt));
+    unawaited(_drain());
+  }
+
+  /// Speaks waiting sentences. Those that arrived while another was playing
+  /// are read together in one go, so a patient who keeps talking is not
+  /// held up sentence by sentence.
+  Future<void> _drain() async {
+    if (_draining) return;
+    _draining = true;
+    try {
+      while (_pending.isNotEmpty && !_ended && !isClosed) {
+        final batch = [..._pending];
+        _pending.clear();
+        await _speakAndLog(batch);
+      }
+    } finally {
+      _draining = false;
+    }
   }
 
   void _remove(int id) {
@@ -308,28 +331,32 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     return _spoken.any((s) => LivePhrasePolicy.isEcho(s.text, text));
   }
 
-  Future<void> _speakAndLog(_LivePlayback phrase) async {
+  Future<void> _speakAndLog(List<_LivePlayback> batch) async {
     if (_ended || isClosed) return;
     DateTime? playbackAt;
     final result = await _speak(
-      phrase.id,
-      phrase.transcription.finalTranscript,
+      batch.last.id,
+      batch.map((p) => p.transcription.finalTranscript).join(' '),
       onStarted: (at) {
         playbackAt = at;
-        AppLog.speak(
-          'live segment ${phrase.id} '
-          'final_to_play_ms=${at.difference(phrase.finalAt).inMilliseconds} '
-          'latency_ms=${at.difference(phrase.lastVoiceAt).inMilliseconds}',
-        );
+        for (final phrase in batch) {
+          AppLog.speak(
+            'live segment ${phrase.id} batch=${batch.length} '
+            'final_to_play_ms=${at.difference(phrase.finalAt).inMilliseconds} '
+            'latency_ms=${at.difference(phrase.lastVoiceAt).inMilliseconds}',
+          );
+        }
       },
     );
     if (_ended || isClosed || result is! Success<void> || playbackAt == null) {
       return;
     }
-    final latency = playbackAt!.difference(phrase.lastVoiceAt);
-    unawaited(
-      _logPlayback(phrase, latency.isNegative ? Duration.zero : latency),
-    );
+    for (final phrase in batch) {
+      final latency = playbackAt!.difference(phrase.lastVoiceAt);
+      unawaited(
+        _logPlayback(phrase, latency.isNegative ? Duration.zero : latency),
+      );
+    }
   }
 
   Future<void> _logPlayback(_LivePlayback phrase, Duration latency) async {
@@ -434,6 +461,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     _events = null;
     await _conversation?.close();
     _conversation = null;
+    _pending.clear();
     await _input?.cancel();
     _input = null;
     await _mic.stop();
