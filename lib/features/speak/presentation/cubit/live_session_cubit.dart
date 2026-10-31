@@ -18,7 +18,15 @@ import 'package:marieum_app/features/speak/domain/repositories/utterance_reposit
 
 enum LiveStatus { starting, listening, failed, closed }
 
-enum LiveSegmentStatus { interpreting, done, unclear, failed }
+enum LiveSegmentStatus {
+  interpreting,
+  done,
+
+  /// Heard but not sure enough to say on its own; said when tapped.
+  review,
+  unclear,
+  failed,
+}
 
 class LiveSegment extends Equatable {
   const LiveSegment({
@@ -161,6 +169,10 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   /// it first, and low readings were mostly wrong sentences.
   static const speakConfidence = 0.6;
 
+  /// Below this a sentence is shown but only spoken when tapped: readings
+  /// between 0.6 and 0.9 were still wrong about half the time or more.
+  static const autoSpeakConfidence = 0.9;
+
   /// How long after the app's voice ends its echo is still kept out.
   static const muteTail = Duration(milliseconds: 300);
 
@@ -223,6 +235,9 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   /// A finished but open-ended sentence kept back for the rest of it.
   _LivePlayback? _held;
   Timer? _holdTimer;
+
+  /// Sentences waiting for the patient to confirm them by a tap.
+  final _review = <int, _LivePlayback>{};
 
   /// Whether a connection problem is already on screen.
   bool _showingFailure = false;
@@ -461,6 +476,15 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     if (started != null) {
       _pace?.observe(phrase.text, phrase.lastVoiceAt.difference(started));
     }
+    if (phrase.transcription.asrConfidence < autoSpeakConfidence) {
+      AppLog.speak(
+        'live segment ${phrase.id} unsure '
+        '${phrase.transcription.asrConfidence}, waiting for a tap',
+      );
+      _review[phrase.id] = phrase;
+      _show(phrase.id, LiveSegmentStatus.review, phrase.text);
+      return;
+    }
     _show(phrase.id, LiveSegmentStatus.done, phrase.text);
     _pending.add(phrase);
     unawaited(_drain());
@@ -630,7 +654,18 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   Future<void> replay(int id) async {
     if (_ended || isClosed || _speechBusy) return;
     final segment = state.segments.where((s) => s.id == id).firstOrNull;
-    if (segment == null || segment.status != LiveSegmentStatus.done) return;
+    if (segment == null) return;
+    if (segment.status == LiveSegmentStatus.review) {
+      // The patient confirmed it: said and logged like any other.
+      final phrase = _review.remove(id);
+      if (phrase == null) return;
+      AppLog.speak('live segment $id confirmed');
+      _show(id, LiveSegmentStatus.done, phrase.text);
+      _pending.add(phrase);
+      await _drain();
+      return;
+    }
+    if (segment.status != LiveSegmentStatus.done) return;
     AppLog.speak('live replay $id');
     await _speak(id, segment.text);
   }
@@ -642,6 +677,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     _clock?.cancel();
     _holdTimer?.cancel();
     _held = null;
+    _review.clear();
     await _events?.cancel();
     _events = null;
     await _conversation?.close();
