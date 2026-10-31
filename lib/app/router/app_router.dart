@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:go_router/go_router.dart';
 import 'package:marieum_app/app/navigation/main_navigation_shell.dart';
+import 'package:marieum_app/app/providers/authenticated_quick_phrase_scope.dart';
 import 'package:marieum_app/app/router/app_routes.dart';
 import 'package:marieum_app/app/router/auth_router_refresh.dart';
 import 'package:marieum_app/core/ui/placeholder_page.dart';
@@ -11,16 +12,23 @@ import 'package:marieum_app/features/auth/presentation/pages/login_page.dart';
 import 'package:marieum_app/features/auth/presentation/pages/onboarding_page.dart';
 import 'package:marieum_app/features/auth/presentation/pages/signup_page.dart';
 import 'package:marieum_app/features/auth/presentation/pages/splash_page.dart';
+import 'package:marieum_app/features/quick_phrase/presentation/bloc/quick_phrase_bloc.dart';
 import 'package:marieum_app/features/speak/domain/entities/playback_request.dart';
 import 'package:marieum_app/features/speak/domain/entities/speak_mode.dart';
+import 'package:marieum_app/features/speak/presentation/cubit/playback_cubit.dart';
+import 'package:marieum_app/features/speak/presentation/pages/playback_page.dart';
+import 'package:marieum_app/features/speak/presentation/pages/speak_page.dart';
 
 GoRouter createAppRouter({
   required AuthBloc authBloc,
   required AuthRepository repository,
   required AuthRouterRefresh refresh,
+  required QuickPhraseBloc Function() createQuickPhraseBloc,
+  required PlaybackCubit Function(PlaybackRequest) createPlaybackCubit,
   String initialLocation = AppRoutes.splash,
 }) {
   final rootKey = GlobalKey<NavigatorState>();
+  final authenticatedKey = GlobalKey<NavigatorState>();
   return GoRouter(
     navigatorKey: rootKey,
     initialLocation: initialLocation,
@@ -61,56 +69,72 @@ GoRouter createAppRouter({
         path: AppRoutes.signup,
         builder: (_, _) => SignupPage(repository: repository),
       ),
-      GoRoute(
-        path: AppRoutes.onboarding,
-        builder: (_, state) => OnboardingPage(
-          repository: repository,
-          review: state.uri.queryParameters['review'] == '1',
+      ShellRoute(
+        navigatorKey: authenticatedKey,
+        builder: (context, state, child) => AuthenticatedQuickPhraseScope(
+          createBloc: createQuickPhraseBloc,
+          child: child,
         ),
-      ),
-      StatefulShellRoute.indexedStack(
-        builder: (context, state, shell) => MainNavigationShell(shell: shell),
-        branches: [
-          for (final path in [
-            AppRoutes.speak,
-            AppRoutes.history,
-            AppRoutes.settings,
-          ])
-            StatefulShellBranch(
-              routes: [
-                GoRoute(
-                  path: path,
-                  builder: (context, state) => const SizedBox.expand(),
+        routes: [
+          GoRoute(
+            path: AppRoutes.onboarding,
+            builder: (_, state) => OnboardingPage(
+              repository: repository,
+              review: state.uri.queryParameters['review'] == '1',
+            ),
+          ),
+          StatefulShellRoute.indexedStack(
+            builder: (context, state, shell) =>
+                MainNavigationShell(shell: shell),
+            branches: [
+              for (final path in [
+                AppRoutes.speak,
+                AppRoutes.history,
+                AppRoutes.settings,
+              ])
+                StatefulShellBranch(
+                  routes: [
+                    GoRoute(
+                      path: path,
+                      builder: (context, state) => path == AppRoutes.speak
+                          ? const SpeakPage()
+                          : const SizedBox.expand(),
+                    ),
+                  ],
                 ),
-              ],
+            ],
+          ),
+          GoRoute(
+            path: AppRoutes.utterance,
+            parentNavigatorKey: authenticatedKey,
+            redirect: (context, state) =>
+                state.extra is SpeakMode ? null : AppRoutes.speak,
+            builder: (context, state) =>
+                const PlaceholderPage(title: '내 목소리로 말하기'),
+          ),
+          GoRoute(
+            path: AppRoutes.playback,
+            parentNavigatorKey: authenticatedKey,
+            redirect: (context, state) =>
+                state.extra is PlaybackRequest ? null : AppRoutes.speak,
+            builder: (context, state) => PlaybackPage(
+              request: state.extra! as PlaybackRequest,
+              createCubit: createPlaybackCubit,
+            ),
+          ),
+          for (final entry in const {
+            AppRoutes.quickPhrases: '빠른 문장 관리',
+            AppRoutes.insight: '개인화 현황',
+            AppRoutes.account: '계정 관리',
+            AppRoutes.privacy: '개인정보·데이터',
+          }.entries)
+            GoRoute(
+              path: entry.key,
+              parentNavigatorKey: authenticatedKey,
+              builder: (context, state) => PlaceholderPage(title: entry.value),
             ),
         ],
       ),
-      GoRoute(
-        path: AppRoutes.utterance,
-        parentNavigatorKey: rootKey,
-        redirect: (context, state) =>
-            state.extra is SpeakMode ? null : AppRoutes.speak,
-        builder: (context, state) => const PlaceholderPage(title: '내 목소리로 말하기'),
-      ),
-      GoRoute(
-        path: AppRoutes.playback,
-        parentNavigatorKey: rootKey,
-        redirect: (context, state) =>
-            state.extra is PlaybackRequest ? null : AppRoutes.speak,
-        builder: (context, state) => const PlaceholderPage(title: '음성 재생'),
-      ),
-      for (final entry in const {
-        AppRoutes.quickPhrases: '빠른 문장 관리',
-        AppRoutes.insight: '개인화 현황',
-        AppRoutes.account: '계정 관리',
-        AppRoutes.privacy: '개인정보·데이터',
-      }.entries)
-        GoRoute(
-          path: entry.key,
-          parentNavigatorKey: rootKey,
-          builder: (context, state) => PlaceholderPage(title: entry.value),
-        ),
     ],
   );
 }

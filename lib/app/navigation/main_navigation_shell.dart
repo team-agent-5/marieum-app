@@ -13,19 +13,21 @@ class MainNavigationShell extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       drawer: const AppDrawer(),
-      appBar: AdaptiveTopBar(
-        title: const ['말하기', '요청 기록', '설정'][shell.currentIndex],
-        large:
-            shell.currentIndex != 0 &&
-            Theme.of(context).platform == TargetPlatform.iOS,
-        leading: Builder(
-          builder: (context) => IconButton(
-            tooltip: '메뉴 열기',
-            onPressed: () => Scaffold.of(context).openDrawer(),
-            icon: const Icon(Icons.menu_rounded),
-          ),
-        ),
-      ),
+      appBar: shell.currentIndex == 0
+          ? null
+          : AdaptiveTopBar(
+              title: const ['말하기', '요청 기록', '설정'][shell.currentIndex],
+              large:
+                  shell.currentIndex != 0 &&
+                  Theme.of(context).platform == TargetPlatform.iOS,
+              leading: Builder(
+                builder: (context) => IconButton(
+                  tooltip: '메뉴 열기',
+                  onPressed: () => Scaffold.of(context).openDrawer(),
+                  icon: const Icon(Icons.menu_rounded),
+                ),
+              ),
+            ),
       body: SafeArea(top: false, child: shell),
       bottomNavigationBar: AdaptiveTabBar(
         selectedIndex: shell.currentIndex,

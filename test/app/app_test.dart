@@ -106,7 +106,7 @@ void main() {
             ),
           );
           await tester.pumpAndSettle();
-          expect(find.text('음성 재생'), findsOneWidget);
+          expect(find.text('말하고 있어요'), findsOneWidget);
           router.pop();
           await tester.pumpAndSettle();
           expect(router.state.uri.path, '/speak');
