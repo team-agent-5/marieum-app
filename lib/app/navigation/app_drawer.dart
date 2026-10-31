@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:marieum_app/app/router/app_routes.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
+import 'package:marieum_app/features/auth/presentation/bloc/auth_bloc.dart';
 
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
@@ -15,56 +17,59 @@ class AppDrawer extends StatelessWidget {
       child: SafeArea(
         child: ListView(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          children: const [
-            Padding(
+          children: [
+            const Padding(
               padding: EdgeInsets.all(12),
               child: Text('Marieum', style: AppTokens.title),
             ),
-            _SectionTitle('바로가기'),
-            _DrawerLink(
+            const _SectionTitle('바로가기'),
+            const _DrawerLink(
               label: '요청 기록',
               icon: Icons.list_alt_rounded,
               path: AppRoutes.history,
               tab: true,
             ),
-            _DrawerLink(
+            const _DrawerLink(
               label: '설정',
               icon: Icons.settings_outlined,
               path: AppRoutes.settings,
               tab: true,
             ),
-            _SectionTitle('내 말하기'),
-            _DrawerLink(
+            const _SectionTitle('내 말하기'),
+            const _DrawerLink(
               label: '빠른 문장 관리',
               icon: Icons.text_fields_rounded,
               path: AppRoutes.quickPhrases,
             ),
-            _DrawerLink(
+            const _DrawerLink(
               label: '개인화 현황',
               icon: Icons.insights_outlined,
               path: AppRoutes.insight,
             ),
-            _SectionTitle('최근 요청'),
-            Divider(),
-            _DrawerLink(
+            const _SectionTitle('최근 요청'),
+            const Divider(),
+            const _DrawerLink(
               label: '사용 방법 다시 보기',
               icon: Icons.help_outline_rounded,
               path: '${AppRoutes.onboarding}?review=1',
             ),
-            _DrawerLink(
+            const _DrawerLink(
               label: '계정 관리',
               icon: Icons.person_outline_rounded,
               path: AppRoutes.account,
             ),
-            _DrawerLink(
+            const _DrawerLink(
               label: '개인정보·데이터',
               icon: Icons.lock_outline_rounded,
               path: AppRoutes.privacy,
             ),
             ListTile(
-              enabled: false,
-              leading: Icon(Icons.logout_rounded),
-              title: Text('로그아웃'),
+              onTap: () {
+                Navigator.of(context).pop();
+                context.read<AuthBloc>().add(const LogoutRequested());
+              },
+              leading: const Icon(Icons.logout_rounded),
+              title: const Text('로그아웃'),
             ),
           ],
         ),
