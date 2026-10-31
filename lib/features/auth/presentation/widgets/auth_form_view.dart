@@ -109,7 +109,8 @@ class _AuthFormViewState extends State<AuthFormView> {
                       label: '아이디',
                       name: 'user_id',
                       controller: _id,
-                      helper: signup ? '영문 소문자·숫자·밑줄 4~20자' : null,
+                      helper: signup ? '영문·숫자·밑줄 4~20자' : null,
+                      asciiOnly: true,
                       error: state.fieldErrors['user_id'],
                       autofill: const [AutofillHints.username],
                     ),
@@ -119,6 +120,7 @@ class _AuthFormViewState extends State<AuthFormView> {
                       controller: _password,
                       helper: signup ? '8자 이상' : null,
                       secret: true,
+                      asciiOnly: true,
                       error: state.fieldErrors['password'],
                       autofill: [
                         if (signup)
@@ -133,6 +135,7 @@ class _AuthFormViewState extends State<AuthFormView> {
                         name: 'password_confirm',
                         controller: _confirm,
                         secret: true,
+                        asciiOnly: true,
                         error: state.fieldErrors['password_confirm'],
                         autofill: const [AutofillHints.newPassword],
                       ),
@@ -182,6 +185,7 @@ class _AuthField extends StatelessWidget {
     this.helper,
     this.error,
     this.secret = false,
+    this.asciiOnly = false,
   });
   final String label;
   final String name;
@@ -190,6 +194,9 @@ class _AuthField extends StatelessWidget {
   final String? helper;
   final String? error;
   final bool secret;
+
+  /// Uses an ASCII keyboard so IDs and passwords are not composed in Hangul.
+  final bool asciiOnly;
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(bottom: 12),
@@ -209,13 +216,17 @@ class _AuthField extends StatelessWidget {
           key: ValueKey('auth_$name'),
           controller: controller,
           obscureText: secret,
+          keyboardType: asciiOnly ? TextInputType.visiblePassword : null,
           autocorrect: false,
           enableSuggestions: false,
           autofillHints: autofill,
           textInputAction: TextInputAction.next,
           style: const TextStyle(fontSize: 16, color: AppTokens.ink),
           decoration: InputDecoration(
-            errorText: error,
+            errorText: error == null || error!.isEmpty ? null : error,
+            error: error != null && error!.isEmpty
+                ? const SizedBox.shrink()
+                : null,
             helperText: error == null ? helper : null,
             helperStyle: const TextStyle(fontSize: 12, color: AppTokens.ink2),
             errorMaxLines: 3,

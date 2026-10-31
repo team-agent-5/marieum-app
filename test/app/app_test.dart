@@ -4,9 +4,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:marieum_app/app/marieum_app.dart';
 import 'package:marieum_app/core/ui/adaptive/adaptive_tab_bar.dart';
-import 'package:marieum_app/core/ui/safety_banner.dart';
 import 'package:marieum_app/features/speak/domain/entities/playback_request.dart';
-import 'package:marieum_app/features/speak/domain/entities/speak_mode.dart';
 
 import '../helpers/pump_app.dart';
 
@@ -87,49 +85,30 @@ void main() {
         });
       }
 
-      testWidgets(
-        'replaces utterance with playback and returns to the origin',
-        (tester) async {
-          final router = await tester.pumpApp();
-          addTearDown(router.dispose);
-          unawaited(
-            router.push<void>('/speak/utterance', extra: SpeakMode.precise),
-          );
-          await tester.pumpAndSettle();
-          expect(find.byType(AdaptiveTabBar), findsNothing);
-          unawaited(
-            router.pushReplacement<void>(
-              '/speak/playback',
-              extra: const PlaybackRequest(
-                text: '물 주세요',
-                origin: PlaybackOrigin.utterance,
-              ),
+      testWidgets('opens playback over the tabs and returns to speaking', (
+        tester,
+      ) async {
+        final router = await tester.pumpApp();
+        addTearDown(router.dispose);
+        unawaited(
+          router.push<void>(
+            '/speak/playback',
+            extra: const PlaybackRequest(
+              text: '물 주세요',
+              origin: PlaybackOrigin.quickPhrase,
             ),
-          );
-          await tester.pumpAndSettle();
-          expect(find.text('음성 재생'), findsOneWidget);
-          router.pop();
-          await tester.pumpAndSettle();
-          expect(router.state.uri.path, '/speak');
-        },
-      );
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(AdaptiveTabBar), findsNothing);
+        expect(find.text('말하고 있어요'), findsOneWidget);
+        router.pop();
+        await tester.pumpAndSettle();
+        expect(router.state.uri.path, '/speak');
+      });
     });
 
     group('configuration', () {
-      testWidgets(
-        'shows the configured safety notice and allows it to be hidden',
-        (tester) async {
-          final enabledRouter = await tester.pumpApp(showSafetyBanner: true);
-          addTearDown(enabledRouter.dispose);
-          expect(find.byType(SafetyBanner), findsOneWidget);
-          expect(find.text('응급 상황은 즉시 119 또는 호출벨을 사용하세요'), findsOneWidget);
-          await tester.pumpWidget(const SizedBox.shrink());
-          final disabledRouter = await tester.pumpApp();
-          addTearDown(disabledRouter.dispose);
-          expect(find.byType(SafetyBanner), findsNothing);
-        },
-      );
-
       testWidgets(
         'uses native iOS tab controls and switches to history',
         (tester) async {

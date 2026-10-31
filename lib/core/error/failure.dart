@@ -15,6 +15,10 @@ final class TtsUnavailableFailure extends Failure {
   const TtsUnavailableFailure() : super('한국어 음성을 사용할 수 없습니다.');
 }
 
+final class RecordingFailure extends Failure {
+  const RecordingFailure(super.message);
+}
+
 final class TtsFailure extends Failure {
   const TtsFailure(super.message);
 }

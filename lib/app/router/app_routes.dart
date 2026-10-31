@@ -4,7 +4,6 @@ abstract final class AppRoutes {
   static const signup = '/signup';
   static const onboarding = '/onboarding';
   static const speak = '/speak';
-  static const utterance = '/speak/utterance';
   static const playback = '/speak/playback';
   static const history = '/history';
   static const settings = '/settings';

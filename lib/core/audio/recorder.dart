@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:marieum_app/core/audio/recorded_audio.dart';
@@ -23,6 +24,10 @@ class Recorder {
   Future<void>? _starting;
   _Recording? _current;
   bool _disposed = false;
+  final _levels = StreamController<double>.broadcast();
+
+  /// Input loudness of each captured chunk, 0 (silence) to 1 (loud).
+  Stream<double> get levels => _levels.stream;
 
   Future<RecordedAudio> get completed {
     final current = _current;
@@ -63,6 +68,7 @@ class Recorder {
               current
                 ..pcm.add(chunk.sublist(0, count))
                 ..length += count;
+              if (!_levels.isClosed) _levels.add(pcmLevel(chunk));
             }
             if (current.length == maxPcmBytes) unawaited(_finish(current));
           },
@@ -137,9 +143,26 @@ class Recorder {
         }
       }
     } finally {
+      await _levels.close();
       await _engine.dispose();
     }
   }
+}
+
+/// Maps PCM16 little-endian RMS onto a 0..1 scale spanning -50 dBFS to 0.
+double pcmLevel(List<int> chunk) {
+  final samples = chunk.length ~/ 2;
+  if (samples == 0) return 0;
+  final data = ByteData.sublistView(Uint8List.fromList(chunk));
+  var sum = 0.0;
+  for (var i = 0; i < samples; i++) {
+    final sample = data.getInt16(i * 2, Endian.little) / 32768;
+    sum += sample * sample;
+  }
+  final rms = math.sqrt(sum / samples);
+  if (rms <= 0) return 0;
+  final db = 20 * math.log(rms) / math.ln10;
+  return ((db + 50) / 50).clamp(0, 1).toDouble();
 }
 
 class _Recording {

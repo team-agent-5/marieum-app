@@ -1,0 +1,517 @@
+import 'dart:async';
+
+import 'package:equatable/equatable.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:marieum_app/core/audio/recorded_audio.dart';
+import 'package:marieum_app/core/audio/recorder.dart';
+import 'package:marieum_app/core/error/failure.dart';
+import 'package:marieum_app/core/error/result.dart';
+import 'package:marieum_app/core/haptics/haptics.dart';
+import 'package:marieum_app/core/tts/tts_port.dart';
+import 'package:marieum_app/features/speak/domain/entities/speak_mode.dart';
+import 'package:marieum_app/features/speak/domain/entities/utterance.dart';
+import 'package:marieum_app/features/speak/domain/repositories/utterance_repository.dart';
+
+enum UtterancePhase {
+  idle,
+  recording,
+  analyzing,
+  suggesting,
+  reask,
+  noMatch,
+  speaking;
+
+  /// Phases where the main screen must ignore every other control.
+  bool get locksScreen => this == recording || this == analyzing;
+
+  /// Phases presented in the bottom sheet.
+  bool get usesSheet =>
+      this == suggesting ||
+      this == reask ||
+      this == noMatch ||
+      this == speaking;
+}
+
+sealed class UtteranceEvent extends Equatable {
+  const UtteranceEvent();
+  @override
+  List<Object?> get props => [];
+}
+
+/// The main button: starts recording when idle, stops it while recording.
+final class UtteranceButtonPressed extends UtteranceEvent {
+  const UtteranceButtonPressed(this.mode);
+  final SpeakMode mode;
+  @override
+  List<Object?> get props => [mode];
+}
+
+final class UtteranceCancelPressed extends UtteranceEvent {
+  const UtteranceCancelPressed();
+}
+
+final class UtteranceCandidateTapped extends UtteranceEvent {
+  const UtteranceCandidateTapped(this.candidate);
+  final Candidate candidate;
+  @override
+  List<Object?> get props => [candidate];
+}
+
+final class UtteranceConfirmPressed extends UtteranceEvent {
+  const UtteranceConfirmPressed();
+}
+
+/// "다시 말하기" in the sheet. Rejects the shown candidates, then records again.
+final class UtteranceRetryPressed extends UtteranceEvent {
+  const UtteranceRetryPressed();
+}
+
+/// The sheet was closed by the patient. Not a rejection.
+final class UtteranceSheetDismissed extends UtteranceEvent {
+  const UtteranceSheetDismissed();
+}
+
+final class _Ticked extends UtteranceEvent {
+  const _Ticked();
+}
+
+final class _LevelChanged extends UtteranceEvent {
+  const _LevelChanged(this.level);
+  final double level;
+}
+
+final class _RecordingEnded extends UtteranceEvent {
+  const _RecordingEnded(this.generation, this.result);
+  final int generation;
+  final Result<RecordedAudio> result;
+}
+
+class UtteranceState extends Equatable {
+  const UtteranceState({
+    this.phase = UtterancePhase.idle,
+    this.mode = SpeakMode.precise,
+    this.elapsed = Duration.zero,
+    this.level = 0,
+    this.transcription,
+    this.suggestions,
+    this.selected,
+    this.reaskCount = 0,
+    this.spokenText,
+    this.notice,
+    this.noticeId = 0,
+  });
+
+  final UtterancePhase phase;
+  final SpeakMode mode;
+  final Duration elapsed;
+  final double level;
+  final Transcription? transcription;
+  final Suggestions? suggestions;
+  final Candidate? selected;
+
+  /// Low-confidence attempts in the current speaking session.
+  final int reaskCount;
+  final String? spokenText;
+
+  /// One-off message for a snackbar; `noticeId` changes each time.
+  final Failure? notice;
+  final int noticeId;
+
+  bool get reaskExhausted => reaskCount >= UtteranceBloc.maxReask;
+
+  UtteranceState copyWith({
+    UtterancePhase? phase,
+    SpeakMode? mode,
+    Duration? elapsed,
+    double? level,
+    Transcription? transcription,
+    Suggestions? suggestions,
+    Candidate? Function()? selected,
+    int? reaskCount,
+    String? spokenText,
+  }) => UtteranceState(
+    phase: phase ?? this.phase,
+    mode: mode ?? this.mode,
+    elapsed: elapsed ?? this.elapsed,
+    level: level ?? this.level,
+    transcription: transcription ?? this.transcription,
+    suggestions: suggestions ?? this.suggestions,
+    selected: selected == null ? this.selected : selected(),
+    reaskCount: reaskCount ?? this.reaskCount,
+    spokenText: spokenText ?? this.spokenText,
+    noticeId: noticeId,
+  );
+
+  @override
+  List<Object?> get props => [
+    phase,
+    mode,
+    elapsed,
+    level,
+    transcription,
+    suggestions,
+    selected,
+    reaskCount,
+    spokenText,
+    noticeId,
+  ];
+}
+
+class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
+  UtteranceBloc({
+    required this._repository,
+    required this._createRecorder,
+    required this._tts,
+    required this._haptics,
+    DateTime Function()? now,
+  }) : _now = now ?? DateTime.now,
+       super(const UtteranceState()) {
+    on<UtteranceButtonPressed>(_onButton);
+    on<UtteranceCancelPressed>(_onCancel);
+    on<UtteranceCandidateTapped>(_onCandidate);
+    on<UtteranceConfirmPressed>(_onConfirm);
+    on<UtteranceRetryPressed>(_onRetry);
+    on<UtteranceSheetDismissed>(_onDismissed);
+    on<_Ticked>(_onTick);
+    on<_LevelChanged>(
+      (event, emit) => emit(state.copyWith(level: event.level)),
+    );
+    on<_RecordingEnded>(_onRecordingEnded);
+  }
+
+  static const maxReask = 3;
+  static const tick = Duration(milliseconds: 100);
+
+  final UtteranceRepository _repository;
+  final Recorder Function() _createRecorder;
+  final TtsPort _tts;
+  final VoiceHaptics _haptics;
+  final DateTime Function() _now;
+
+  /// Bumped whenever the flow is abandoned so late results are ignored.
+  int _generation = 0;
+  Recorder? _recorder;
+  Timer? _ticker;
+  StreamSubscription<double>? _levels;
+  DateTime? _recordingStartedAt;
+  DateTime? _recordingEndedAt;
+  DateTime? _candidatesShownAt;
+
+  Future<void> _onButton(
+    UtteranceButtonPressed event,
+    Emitter<UtteranceState> emit,
+  ) async {
+    switch (state.phase) {
+      case UtterancePhase.idle:
+        await _startRecording(event.mode, emit, reaskCount: 0);
+      case UtterancePhase.recording:
+        await _recorder?.stop().then((_) {}, onError: (Object _) {});
+      case _:
+        return;
+    }
+  }
+
+  Future<void> _startRecording(
+    SpeakMode mode,
+    Emitter<UtteranceState> emit, {
+    required int reaskCount,
+  }) async {
+    final generation = ++_generation;
+    final recorder = _createRecorder();
+    _recorder = recorder;
+    emit(
+      UtteranceState(
+        phase: UtterancePhase.recording,
+        mode: mode,
+        reaskCount: reaskCount,
+        noticeId: state.noticeId,
+      ),
+    );
+    try {
+      await recorder.start();
+    } on Object catch (error) {
+      await _disposeRecorder();
+      if (generation != _generation) return;
+      _notify(
+        emit,
+        error is Failure ? error : const RecordingFailure('녹음을 시작하지 못했어요.'),
+        const UtteranceState(),
+      );
+      return;
+    }
+    if (generation != _generation) {
+      await recorder.dispose();
+      return;
+    }
+    _feedback(VoiceHaptic.recordingStarted);
+    _recordingStartedAt = _now();
+    _ticker = Timer.periodic(tick, (_) => add(const _Ticked()));
+    _levels = recorder.levels.listen((level) => add(_LevelChanged(level)));
+    unawaited(
+      recorder.completed.then(
+        (audio) => add(_RecordingEnded(generation, Success(audio))),
+        onError: (Object error) => add(
+          _RecordingEnded(
+            generation,
+            FailureResult(
+              error is Failure
+                  ? error
+                  : const RecordingFailure('녹음을 끝내지 못했어요.'),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _onTick(_Ticked event, Emitter<UtteranceState> emit) {
+    final started = _recordingStartedAt;
+    if (state.phase != UtterancePhase.recording || started == null) return;
+    final elapsed = _now().difference(started);
+    emit(
+      state.copyWith(
+        elapsed: elapsed > Recorder.maxDuration
+            ? Recorder.maxDuration
+            : elapsed,
+      ),
+    );
+  }
+
+  Future<void> _onCancel(
+    UtteranceCancelPressed event,
+    Emitter<UtteranceState> emit,
+  ) async {
+    if (!state.phase.locksScreen) return;
+    ++_generation;
+    await _disposeRecorder();
+    emit(UtteranceState(mode: state.mode, noticeId: state.noticeId));
+  }
+
+  Future<void> _onRecordingEnded(
+    _RecordingEnded event,
+    Emitter<UtteranceState> emit,
+  ) async {
+    if (event.generation != _generation ||
+        state.phase != UtterancePhase.recording) {
+      return;
+    }
+    final reachedLimit = state.elapsed >= Recorder.maxDuration - tick;
+    _recordingEndedAt = _now();
+    await _disposeRecorder();
+    _feedback(
+      reachedLimit ? VoiceHaptic.recordingLimit : VoiceHaptic.recordingStopped,
+    );
+    switch (event.result) {
+      case FailureResult(:final failure):
+        _notify(emit, failure, UtteranceState(mode: state.mode));
+      case Success(value: final audio):
+        emit(state.copyWith(phase: UtterancePhase.analyzing, level: 0));
+        await _analyze(audio, event.generation, emit);
+    }
+  }
+
+  Future<void> _analyze(
+    RecordedAudio audio,
+    int generation,
+    Emitter<UtteranceState> emit,
+  ) async {
+    final transcribed = await _repository.transcribe(audio);
+    if (generation != _generation) return;
+    final Transcription transcription;
+    switch (transcribed) {
+      case FailureResult(:final failure):
+        _notify(emit, failure, UtteranceState(mode: state.mode));
+        return;
+      case Success(:final value):
+        transcription = value;
+    }
+    if (transcription.isLowConfidence) {
+      _reask(emit, transcription);
+      return;
+    }
+    if (state.mode == SpeakMode.live) {
+      final spoken = await _repository.bypass(
+        transcription,
+        latency: _since(_recordingEndedAt),
+      );
+      if (generation != _generation) return;
+      switch (spoken) {
+        case Success(:final value):
+          await _speak(value, generation, emit);
+        case FailureResult(failure: ValidationFailure()):
+          _reask(emit, transcription);
+        case FailureResult(:final failure):
+          _notify(emit, failure, UtteranceState(mode: state.mode));
+      }
+      return;
+    }
+    final suggested = await _repository.suggest(transcription);
+    if (generation != _generation) return;
+    switch (suggested) {
+      case Success(:final value) when !value.isEmpty:
+        _candidatesShownAt = _now();
+        emit(
+          state.copyWith(
+            phase: UtterancePhase.suggesting,
+            transcription: transcription,
+            suggestions: value,
+            selected: () => null,
+          ),
+        );
+      case Success(:final value):
+        emit(
+          state.copyWith(
+            phase: UtterancePhase.noMatch,
+            transcription: transcription,
+            suggestions: value,
+          ),
+        );
+      case FailureResult(failure: TimeoutFailure()):
+        emit(
+          state.copyWith(
+            phase: UtterancePhase.noMatch,
+            transcription: transcription,
+          ),
+        );
+      case FailureResult(:final failure):
+        _notify(emit, failure, UtteranceState(mode: state.mode));
+    }
+  }
+
+  void _reask(Emitter<UtteranceState> emit, Transcription transcription) =>
+      emit(
+        state.copyWith(
+          phase: UtterancePhase.reask,
+          transcription: transcription,
+          reaskCount: state.reaskCount + 1,
+        ),
+      );
+
+  void _onCandidate(
+    UtteranceCandidateTapped event,
+    Emitter<UtteranceState> emit,
+  ) {
+    if (state.phase != UtterancePhase.suggesting) return;
+    _feedback(VoiceHaptic.selected);
+    emit(state.copyWith(selected: () => event.candidate));
+  }
+
+  Future<void> _onConfirm(
+    UtteranceConfirmPressed event,
+    Emitter<UtteranceState> emit,
+  ) async {
+    final candidate = state.selected;
+    final transcription = state.transcription;
+    final suggestions = state.suggestions;
+    if (state.phase != UtterancePhase.suggesting ||
+        candidate == null ||
+        transcription == null ||
+        suggestions == null) {
+      return;
+    }
+    _repository.logSelected(
+      transcription: transcription,
+      suggestions: suggestions,
+      candidate: candidate,
+      latency: _since(_candidatesShownAt),
+    );
+    await _speak(candidate.text, ++_generation, emit);
+  }
+
+  Future<void> _speak(
+    String text,
+    int generation,
+    Emitter<UtteranceState> emit,
+  ) async {
+    emit(state.copyWith(phase: UtterancePhase.speaking, spokenText: text));
+    _feedback(VoiceHaptic.playbackStarted);
+    final result = await _tts.speak(text);
+    if (generation != _generation) return;
+    _feedback(VoiceHaptic.playbackStopped);
+    final done = UtteranceState(mode: state.mode);
+    if (result case FailureResult(:final failure)) {
+      _notify(emit, failure, done);
+    } else {
+      emit(done.copyWith());
+    }
+  }
+
+  Future<void> _onRetry(
+    UtteranceRetryPressed event,
+    Emitter<UtteranceState> emit,
+  ) async {
+    final transcription = state.transcription;
+    final suggestions = state.suggestions;
+    switch (state.phase) {
+      case UtterancePhase.suggesting
+          when transcription != null && suggestions != null:
+        _repository.logRejected(
+          transcription: transcription,
+          suggestions: suggestions,
+          latency: _since(_candidatesShownAt),
+        );
+      case UtterancePhase.reask when !state.reaskExhausted:
+      case UtterancePhase.noMatch:
+        break;
+      case _:
+        return;
+    }
+    await _startRecording(state.mode, emit, reaskCount: state.reaskCount);
+  }
+
+  Future<void> _onDismissed(
+    UtteranceSheetDismissed event,
+    Emitter<UtteranceState> emit,
+  ) async {
+    if (!state.phase.usesSheet) return;
+    ++_generation;
+    if (state.phase == UtterancePhase.speaking) {
+      await _tts.stop();
+    }
+    emit(UtteranceState(mode: state.mode, noticeId: state.noticeId));
+  }
+
+  void _notify(
+    Emitter<UtteranceState> emit,
+    Failure failure,
+    UtteranceState next,
+  ) => emit(
+    UtteranceState(
+      phase: next.phase,
+      mode: next.mode,
+      notice: failure,
+      noticeId: state.noticeId + 1,
+    ),
+  );
+
+  Duration _since(DateTime? start) =>
+      start == null ? Duration.zero : _now().difference(start);
+
+  void _feedback(VoiceHaptic event) =>
+      unawaited(_haptics.trigger(event).catchError((Object _) {}));
+
+  Future<void> _disposeRecorder() async {
+    _ticker?.cancel();
+    _ticker = null;
+    await _levels?.cancel();
+    _levels = null;
+    final recorder = _recorder;
+    _recorder = null;
+    _recordingStartedAt = null;
+    if (recorder != null) {
+      try {
+        await recorder.dispose();
+      } on Object {
+        // Disposal failures must not block the flow.
+      }
+    }
+  }
+
+  @override
+  Future<void> close() async {
+    ++_generation;
+    await _disposeRecorder();
+    if (state.phase == UtterancePhase.speaking) await _tts.stop();
+    return super.close();
+  }
+}
