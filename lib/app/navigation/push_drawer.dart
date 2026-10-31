@@ -27,7 +27,7 @@ class PushDrawer extends StatefulWidget {
 
   /// Width of the left strip that starts an opening swipe, beyond the
   /// system back-gesture area.
-  static const edgeWidth = 24.0;
+  static const edgeWidth = 36.0;
   static const flingVelocity = 365.0;
 
   static double drawerWidthFor(double screenWidth) =>
