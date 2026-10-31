@@ -8,10 +8,11 @@ abstract final class TtsMapping {
           TtsRate.normal => 0.5,
           TtsRate.fast => 0.6,
         },
+        // flutter_tts doubles this on Android, so 0.5 is the engine's 1.0.
         VoicePlatform.android => switch (rate) {
-          TtsRate.slow => 0.7,
-          TtsRate.normal => 1.0,
-          TtsRate.fast => 1.3,
+          TtsRate.slow => 0.35,
+          TtsRate.normal => 0.5,
+          TtsRate.fast => 0.65,
         },
       };
 

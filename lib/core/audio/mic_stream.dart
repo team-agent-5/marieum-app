@@ -5,7 +5,9 @@ import 'package:marieum_app/core/audio/recording_engine.dart';
 import 'package:marieum_app/core/audio/voice_audio_session.dart';
 import 'package:marieum_app/core/error/failure.dart';
 
-/// An open microphone delivering PCM16 16 kHz mono chunks until stopped.
+/// An open microphone delivering PCM16 16 kHz mono chunks until stopped,
+/// with echo cancellation so the app's own voice stays out while it
+/// listens.
 /// Nothing is kept; listeners decide what to send.
 class MicStream {
   MicStream({
@@ -25,7 +27,7 @@ class MicStream {
       throw PermissionFailure(permanent: access == MicrophoneAccess.permanent);
     }
     await _audioSession.configure();
-    final stream = await _engine.startStream();
+    final stream = await _engine.startStream(echoCancel: true);
     _open = true;
     return stream.map(Uint8List.fromList);
   }
