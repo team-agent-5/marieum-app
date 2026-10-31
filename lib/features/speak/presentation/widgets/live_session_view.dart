@@ -180,6 +180,7 @@ class _Transcript extends StatelessWidget {
   Widget build(BuildContext context) {
     final segments = state.segments;
     return Container(
+      key: const ValueKey('live_transcript'),
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
@@ -223,34 +224,52 @@ class _Transcript extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          if (segments.isEmpty)
-            const Expanded(
-              child: Align(
-                alignment: Alignment.topLeft,
-                child: Text(
-                  '말씀하시면 해석한 문장이 여기에 바로 나와요',
-                  style: TextStyle(
-                    fontSize: 20,
-                    height: 1.5,
-                    fontWeight: FontWeight.w700,
-                    color: AppTokens.ink3,
+          // The newest sentence sits in the middle while there is room and
+          // is pushed down as earlier ones pile up above it.
+          Expanded(
+            child: segments.isEmpty
+                ? const Center(
+                    child: Text(
+                      '말씀하시면 해석한 문장이 여기에 바로 나와요',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 20,
+                        height: 1.5,
+                        fontWeight: FontWeight.w700,
+                        color: AppTokens.ink3,
+                      ),
+                    ),
+                  )
+                : Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (segments.length > 1) ...[
+                        Flexible(
+                          child: AnimatedSize(
+                            duration: MediaQuery.disableAnimationsOf(context)
+                                ? Duration.zero
+                                : const Duration(milliseconds: 280),
+                            curve: Curves.easeOutCubic,
+                            alignment: Alignment.bottomCenter,
+                            child: _History(
+                              segments: segments.sublist(
+                                0,
+                                segments.length - 1,
+                              ),
+                              playingId: state.playingId,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      _Current(
+                        segment: segments.last,
+                        playing: state.playingId == segments.last.id,
+                      ),
+                    ],
                   ),
-                ),
-              ),
-            )
-          else ...[
-            Expanded(
-              child: _History(
-                segments: segments.sublist(0, segments.length - 1),
-                playingId: state.playingId,
-              ),
-            ),
-            const SizedBox(height: 12),
-            _Current(
-              segment: segments.last,
-              playing: state.playingId == segments.last.id,
-            ),
-          ],
+          ),
         ],
       ),
     );
@@ -297,17 +316,10 @@ class _HistoryState extends State<_History> {
   }
 
   @override
-  Widget build(BuildContext context) => ShaderMask(
-    // Older lines fade out toward the top.
-    shaderCallback: (bounds) => const LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      colors: [Color(0x33000000), Color(0xFF000000)],
-      stops: [0, .45],
-    ).createShader(bounds),
-    blendMode: BlendMode.dstIn,
-    child: ListView.builder(
+  Widget build(BuildContext context) {
+    final list = ListView.builder(
       controller: _scroll,
+      shrinkWrap: true,
       itemCount: widget.segments.length,
       itemBuilder: (context, index) {
         final segment = widget.segments[index];
@@ -317,8 +329,20 @@ class _HistoryState extends State<_History> {
           playing: widget.playingId == segment.id,
         );
       },
-    ),
-  );
+    );
+    if (widget.segments.length <= 3) return list;
+    // Once lines pile up, the oldest fade out toward the top.
+    return ShaderMask(
+      shaderCallback: (bounds) => const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [Color(0x33000000), Color(0xFF000000)],
+        stops: [0, .45],
+      ).createShader(bounds),
+      blendMode: BlendMode.dstIn,
+      child: list,
+    );
+  }
 }
 
 class _HistoryLine extends StatelessWidget {
@@ -419,34 +443,28 @@ class _Current extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: 120),
-      child: AnimatedSwitcher(
-        duration: reduceMotion
-            ? Duration.zero
-            : const Duration(milliseconds: 280),
-        switchInCurve: Curves.easeOutCubic,
-        transitionBuilder: (child, animation) => FadeTransition(
-          opacity: animation,
-          child: SlideTransition(
-            position: Tween(
-              begin: const Offset(0, .25),
-              end: Offset.zero,
-            ).animate(animation),
-            child: child,
-          ),
+    return AnimatedSwitcher(
+      duration: reduceMotion
+          ? Duration.zero
+          : const Duration(milliseconds: 280),
+      switchInCurve: Curves.easeOutCubic,
+      transitionBuilder: (child, animation) => FadeTransition(
+        opacity: animation,
+        child: SlideTransition(
+          position: Tween(
+            begin: const Offset(0, .25),
+            end: Offset.zero,
+          ).animate(animation),
+          child: child,
         ),
-        layoutBuilder: (current, previous) => Stack(
-          alignment: Alignment.bottomLeft,
-          children: [...previous, ?current],
-        ),
-        child: KeyedSubtree(
-          key: ValueKey(segment.id),
-          child: Align(
-            alignment: Alignment.bottomLeft,
-            child: _content(context),
-          ),
-        ),
+      ),
+      layoutBuilder: (current, previous) => Stack(
+        alignment: Alignment.centerLeft,
+        children: [...previous, ?current],
+      ),
+      child: KeyedSubtree(
+        key: ValueKey(segment.id),
+        child: _content(context),
       ),
     );
   }
