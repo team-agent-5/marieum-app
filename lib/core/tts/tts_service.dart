@@ -1,0 +1,110 @@
+import 'dart:async';
+
+import 'package:marieum_app/core/audio/voice_audio_session.dart';
+import 'package:marieum_app/core/error/failure.dart';
+import 'package:marieum_app/core/error/result.dart';
+import 'package:marieum_app/core/tts/tts_engine.dart';
+import 'package:marieum_app/core/tts/tts_mapping.dart';
+import 'package:marieum_app/core/tts/tts_port.dart';
+
+class TtsService implements TtsPort {
+  TtsService({
+    required this._engine,
+    required this._audioSession,
+    required this._platform,
+  });
+
+  final TtsEngine _engine;
+  final VoiceAudioSession _audioSession;
+  final VoicePlatform _platform;
+  TtsRate rate = TtsRate.normal;
+  TtsVolume volume = TtsVolume.normal;
+  Completer<Result<void>>? _active;
+  bool _disposed = false;
+  bool _stopping = false;
+  Future<Result<void>>? _stopOperation;
+  bool _koreanAvailable = false;
+  Future<bool>? _availabilityCheck;
+
+  @override
+  Future<bool> isKoreanAvailable() {
+    if (_koreanAvailable) return Future.value(true);
+    return _availabilityCheck ??=
+        Future<bool>.sync(
+              () => _engine.isLanguageAvailable('ko-KR'),
+            )
+            .then((available) {
+              _koreanAvailable = available;
+              return available;
+            })
+            .whenComplete(() => _availabilityCheck = null);
+  }
+
+  @override
+  Future<Result<void>> speak(String text) async {
+    if (_disposed || _stopping || _active != null) {
+      return const FailureResult(TtsFailure('음성 서비스가 준비되지 않았습니다.'));
+    }
+    final active = Completer<Result<void>>();
+    _active = active;
+    unawaited(_speak(text, active));
+    return active.future;
+  }
+
+  Future<void> _speak(String text, Completer<Result<void>> active) async {
+    try {
+      if (!await isKoreanAvailable()) throw const TtsUnavailableFailure();
+      if (active.isCompleted) return;
+      await _engine.configure(
+        rate: TtsMapping.rate(_platform, rate),
+        volume: TtsMapping.volume(volume),
+      );
+      if (active.isCompleted) return;
+      // Apply last, after flutter_tts has configured its shared iOS session.
+      await _audioSession.configure();
+      if (active.isCompleted) return;
+      await _engine.speak(text);
+      if (!active.isCompleted) active.complete(const Success<void>(null));
+    } on Object catch (error) {
+      if (!active.isCompleted) {
+        _koreanAvailable = false;
+        active.complete(
+          FailureResult(
+            error is Failure ? error : TtsFailure(error.toString()),
+          ),
+        );
+      }
+    } finally {
+      if (identical(_active, active)) _active = null;
+    }
+  }
+
+  @override
+  Future<Result<void>> stop() => _stopOperation ??= _stop();
+
+  Future<Result<void>> _stop() async {
+    _stopping = true;
+    final active = _active;
+    if (active != null && !active.isCompleted) {
+      active.complete(const FailureResult(TtsFailure('음성 재생이 중지되었습니다.')));
+    }
+    try {
+      await _engine.stop();
+      return const Success(null);
+    } on Object catch (error) {
+      return FailureResult(TtsFailure(error.toString()));
+    } finally {
+      if (active != null && !active.isCompleted) {
+        active.complete(const FailureResult(TtsFailure('음성 재생이 중지되었습니다.')));
+      }
+      if (identical(_active, active)) _active = null;
+      _stopping = false;
+      _stopOperation = null;
+    }
+  }
+
+  Future<void> dispose() async {
+    _disposed = true;
+    await stop();
+  }
+}
