@@ -1,10 +1,9 @@
 import 'dart:async';
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
 import 'package:marieum_app/features/speak/presentation/cubit/playback_cubit.dart';
+import 'package:marieum_app/features/speak/presentation/widgets/voice_wave.dart';
 
 class PlaybackView extends StatelessWidget {
   const PlaybackView({super.key});
@@ -59,7 +58,7 @@ class PlaybackView extends StatelessWidget {
                                 const SizedBox(height: 20),
                                 const _ReturnProgress(),
                               ] else
-                                const _VoiceWave(),
+                                const VoiceWave(),
                             ],
                           ),
                         ),
@@ -152,83 +151,6 @@ class _ReturnProgress extends StatelessWidget {
       tween: Tween(begin: 0, end: 1),
       duration: PlaybackCubit.returnDelay,
       builder: (context, value, _) => LinearProgressIndicator(value: value),
-    ),
-  );
-}
-
-class _VoiceWave extends StatefulWidget {
-  const _VoiceWave();
-  @override
-  State<_VoiceWave> createState() => _VoiceWaveState();
-}
-
-class _VoiceWaveState extends State<_VoiceWave>
-    with SingleTickerProviderStateMixin {
-  static const _heights = [
-    14.0,
-    24.0,
-    36.0,
-    44.0,
-    30.0,
-    20.0,
-    38.0,
-    26.0,
-    14.0,
-  ];
-
-  late final _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1050),
-  );
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (MediaQuery.disableAnimationsOf(context)) {
-      _controller
-        ..stop()
-        ..value = 0;
-    } else if (!_controller.isAnimating) {
-      unawaited(_controller.repeat());
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => ExcludeSemantics(
-    child: SizedBox(
-      height: 44,
-      child: AnimatedBuilder(
-        animation: _controller,
-        builder: (context, _) => Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (var i = 0; i < _heights.length; i++)
-              _bar(_heights[i], _scale(i)),
-          ],
-        ),
-      ),
-    ),
-  );
-
-  double _scale(int index) {
-    if (!_controller.isAnimating) return 1;
-    final phase = (_controller.value - (index - 4).abs() * .1) % 1;
-    return .45 + .55 * (0.5 + 0.5 * math.cos(phase * 2 * math.pi));
-  }
-
-  Widget _bar(double height, double scale) => Container(
-    width: 5,
-    height: height * scale,
-    margin: const EdgeInsets.symmetric(horizontal: 3),
-    decoration: BoxDecoration(
-      color: AppTokens.primary.withValues(alpha: .5 + .5 * scale),
-      borderRadius: BorderRadius.circular(3),
     ),
   );
 }

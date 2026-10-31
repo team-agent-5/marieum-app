@@ -4,6 +4,7 @@ import 'package:marieum_app/core/audio/recorder.dart';
 import 'package:marieum_app/core/audio/recording_engine.dart';
 import 'package:marieum_app/core/audio/voice_audio_session.dart';
 import 'package:marieum_app/core/haptics/haptics.dart';
+import 'package:marieum_app/core/speech/live_transcriber.dart';
 import 'package:marieum_app/core/tts/tts_engine.dart';
 import 'package:marieum_app/core/tts/tts_port.dart';
 import 'package:marieum_app/core/tts/tts_service.dart';
@@ -30,6 +31,7 @@ void registerVoiceDependencies(GetIt dependencies) {
         audioSession: dependencies<VoiceAudioSession>(),
       ),
     )
+    ..registerFactory<LiveTranscriber>(PlatformLiveTranscriber.new)
     ..registerLazySingleton<VoiceHaptics>(
       () => VoiceHaptics(PlatformHapticEngine()),
     );

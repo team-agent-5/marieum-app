@@ -8,6 +8,7 @@ import 'package:marieum_app/features/settings/presentation/cubit/settings_cubit.
 import 'package:marieum_app/features/speak/domain/entities/speak_mode.dart';
 import 'package:marieum_app/features/speak/domain/entities/utterance.dart';
 import 'package:marieum_app/features/speak/presentation/bloc/utterance_bloc.dart';
+import 'package:marieum_app/features/speak/presentation/widgets/recording_view.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/pump_app.dart';
@@ -130,6 +131,76 @@ void main() {
       expect(find.text('분석하고 있어요'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('speak_cta')));
       verifyNever(() => bloc.add(any()));
+    });
+  });
+
+  group('recording page', () {
+    Future<void> show(WidgetTester tester, UtteranceState state) async {
+      when(() => bloc.state).thenReturn(state);
+      states.add(state);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump(const Duration(milliseconds: 600));
+    }
+
+    testWidgets('opens when recording starts and closes when it ends', (
+      tester,
+    ) async {
+      await pump(tester, const UtteranceState());
+      await show(
+        tester,
+        const UtteranceState(
+          phase: UtterancePhase.recording,
+          elapsed: Duration(seconds: 2),
+        ),
+      );
+      expect(find.byType(RecordingView), findsOneWidget);
+      expect(find.text('내 목소리로 말하기'), findsOneWidget);
+      expect(find.text('정확도 모드'), findsWidgets);
+      expect(find.text('00:02'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('recording_finish')));
+      verify(
+        () => bloc.add(const UtteranceButtonPressed(SpeakMode.precise)),
+      ).called(1);
+
+      await show(tester, const UtteranceState(phase: UtterancePhase.analyzing));
+      expect(find.byType(RecordingView), findsNothing);
+    });
+
+    testWidgets('types live text and cancels from the page', (tester) async {
+      await pump(tester, const UtteranceState());
+      await show(
+        tester,
+        const UtteranceState(
+          phase: UtterancePhase.recording,
+          liveTextAvailable: true,
+          liveText: '물',
+        ),
+      );
+      expect(find.text('실시간 텍스트'), findsOneWidget);
+      expect(find.text('물'), findsOneWidget);
+
+      await show(
+        tester,
+        const UtteranceState(
+          phase: UtterancePhase.recording,
+          liveTextAvailable: true,
+          liveText: '물 주세요',
+        ),
+      );
+      expect(find.text('물'), findsOneWidget);
+      expect(find.text('주세요'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('recording_cancel')));
+      verify(() => bloc.add(const UtteranceCancelPressed())).called(1);
+    });
+
+    testWidgets('explains when live text is unavailable', (tester) async {
+      await pump(tester, const UtteranceState());
+      await show(tester, const UtteranceState(phase: UtterancePhase.recording));
+      expect(find.text('말씀을 마치면 글자로 바꿔 드려요'), findsOneWidget);
+      expect(find.byType(TypedTranscript), findsNothing);
     });
   });
 

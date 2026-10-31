@@ -8,6 +8,7 @@ import 'package:marieum_app/core/audio/recorder.dart';
 import 'package:marieum_app/core/error/failure.dart';
 import 'package:marieum_app/core/error/result.dart';
 import 'package:marieum_app/core/haptics/haptics.dart';
+import 'package:marieum_app/core/speech/live_transcriber.dart';
 import 'package:marieum_app/core/tts/tts_port.dart';
 import 'package:marieum_app/features/speak/domain/entities/speak_mode.dart';
 import 'package:marieum_app/features/speak/domain/entities/utterance.dart';
@@ -22,6 +23,8 @@ class _MockRecorder extends Mock implements Recorder {}
 class _MockTts extends Mock implements TtsPort {}
 
 class _MockHaptics extends Mock implements VoiceHaptics {}
+
+class _MockTranscriber extends Mock implements LiveTranscriber {}
 
 final _audio = RecordedAudio(bytes: Uint8List(64), durationMs: 2000);
 
@@ -478,6 +481,84 @@ void main() {
       await settle();
       await bloc.close();
       verify(recorders.single.dispose).called(1);
+    });
+  });
+
+  group('live text', () {
+    late _MockTranscriber transcriber;
+    late StreamController<String> partials;
+    late StreamController<Uint8List> chunks;
+
+    setUp(() {
+      registerFallbackValue(Uint8List(0));
+      transcriber = _MockTranscriber();
+      partials = StreamController<String>.broadcast();
+      chunks = StreamController<Uint8List>.broadcast();
+      addTearDown(partials.close);
+      addTearDown(chunks.close);
+      when(() => transcriber.partials).thenAnswer((_) => partials.stream);
+      when(transcriber.stop).thenAnswer((_) async {});
+    });
+
+    UtteranceBloc buildLive() => UtteranceBloc(
+      repository: repository,
+      createRecorder: () {
+        final recorder = newRecorder() as _MockRecorder;
+        when(() => recorder.chunks).thenAnswer((_) => chunks.stream);
+        return recorder;
+      },
+      createTranscriber: () => transcriber,
+      tts: tts,
+      haptics: haptics,
+    );
+
+    test('feeds recorder chunks and shows partial text', () async {
+      when(transcriber.start).thenAnswer((_) async => true);
+      final bloc = buildLive();
+      addTearDown(bloc.close);
+      bloc.add(const UtteranceButtonPressed(SpeakMode.precise));
+      await settle();
+      expect(bloc.state.liveTextAvailable, isTrue);
+
+      final pcm = Uint8List.fromList([1, 2, 3, 4]);
+      chunks.add(pcm);
+      partials.add(' 물 ');
+      await settle();
+      verify(() => transcriber.append(pcm)).called(1);
+      expect(bloc.state.liveText, '물');
+
+      bloc.add(const UtteranceButtonPressed(SpeakMode.precise));
+      await settle();
+      await settle();
+      verify(transcriber.stop).called(1);
+      partials.add('물 주세요');
+      await settle();
+      expect(bloc.state.liveText, isNot('물 주세요'));
+    });
+
+    test('records without live text when recognition is unavailable', () async {
+      when(transcriber.start).thenAnswer((_) async => false);
+      final bloc = buildLive();
+      addTearDown(bloc.close);
+      bloc.add(const UtteranceButtonPressed(SpeakMode.precise));
+      await settle();
+      expect(bloc.state.phase, UtterancePhase.recording);
+      expect(bloc.state.liveTextAvailable, isFalse);
+      chunks.add(Uint8List(4));
+      await settle();
+      verifyNever(() => transcriber.append(any()));
+    });
+
+    test('cancel stops recognition', () async {
+      when(transcriber.start).thenAnswer((_) async => true);
+      final bloc = buildLive();
+      addTearDown(bloc.close);
+      bloc.add(const UtteranceButtonPressed(SpeakMode.precise));
+      await settle();
+      bloc.add(const UtteranceCancelPressed());
+      await settle();
+      verify(transcriber.stop).called(1);
+      expect(bloc.state.liveText, isEmpty);
     });
   });
 }

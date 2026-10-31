@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -7,6 +8,7 @@ import 'package:marieum_app/core/audio/recorder.dart';
 import 'package:marieum_app/core/error/failure.dart';
 import 'package:marieum_app/core/error/result.dart';
 import 'package:marieum_app/core/haptics/haptics.dart';
+import 'package:marieum_app/core/speech/live_transcriber.dart';
 import 'package:marieum_app/core/tts/tts_port.dart';
 import 'package:marieum_app/features/speak/domain/entities/speak_mode.dart';
 import 'package:marieum_app/features/speak/domain/entities/utterance.dart';
@@ -80,6 +82,12 @@ final class _LevelChanged extends UtteranceEvent {
   final double level;
 }
 
+final class _LiveTextChanged extends UtteranceEvent {
+  const _LiveTextChanged(this.generation, this.text);
+  final int generation;
+  final String text;
+}
+
 final class _RecordingEnded extends UtteranceEvent {
   const _RecordingEnded(this.generation, this.result);
   final int generation;
@@ -92,6 +100,8 @@ class UtteranceState extends Equatable {
     this.mode = SpeakMode.precise,
     this.elapsed = Duration.zero,
     this.level = 0,
+    this.liveTextAvailable = false,
+    this.liveText = '',
     this.transcription,
     this.suggestions,
     this.selected,
@@ -105,6 +115,10 @@ class UtteranceState extends Equatable {
   final SpeakMode mode;
   final Duration elapsed;
   final double level;
+
+  /// Whether on-device recognition is showing text for this recording.
+  final bool liveTextAvailable;
+  final String liveText;
   final Transcription? transcription;
   final Suggestions? suggestions;
   final Candidate? selected;
@@ -124,6 +138,8 @@ class UtteranceState extends Equatable {
     SpeakMode? mode,
     Duration? elapsed,
     double? level,
+    bool? liveTextAvailable,
+    String? liveText,
     Transcription? transcription,
     Suggestions? suggestions,
     Candidate? Function()? selected,
@@ -134,6 +150,8 @@ class UtteranceState extends Equatable {
     mode: mode ?? this.mode,
     elapsed: elapsed ?? this.elapsed,
     level: level ?? this.level,
+    liveTextAvailable: liveTextAvailable ?? this.liveTextAvailable,
+    liveText: liveText ?? this.liveText,
     transcription: transcription ?? this.transcription,
     suggestions: suggestions ?? this.suggestions,
     selected: selected == null ? this.selected : selected(),
@@ -148,6 +166,8 @@ class UtteranceState extends Equatable {
     mode,
     elapsed,
     level,
+    liveTextAvailable,
+    liveText,
     transcription,
     suggestions,
     selected,
@@ -163,8 +183,10 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
     required this._createRecorder,
     required this._tts,
     required this._haptics,
+    LiveTranscriber Function()? createTranscriber,
     DateTime Function()? now,
-  }) : _now = now ?? DateTime.now,
+  }) : _createTranscriber = createTranscriber ?? UnavailableLiveTranscriber.new,
+       _now = now ?? DateTime.now,
        super(const UtteranceState()) {
     on<UtteranceButtonPressed>(_onButton);
     on<UtteranceCancelPressed>(_onCancel);
@@ -176,6 +198,13 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
     on<_LevelChanged>(
       (event, emit) => emit(state.copyWith(level: event.level)),
     );
+    on<_LiveTextChanged>((event, emit) {
+      if (event.generation != _generation ||
+          state.phase != UtterancePhase.recording) {
+        return;
+      }
+      emit(state.copyWith(liveText: event.text.trim()));
+    });
     on<_RecordingEnded>(_onRecordingEnded);
   }
 
@@ -186,6 +215,7 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
   final Recorder Function() _createRecorder;
   final TtsPort _tts;
   final VoiceHaptics _haptics;
+  final LiveTranscriber Function() _createTranscriber;
   final DateTime Function() _now;
 
   /// Bumped whenever the flow is abandoned so late results are ignored.
@@ -193,6 +223,9 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
   Recorder? _recorder;
   Timer? _ticker;
   StreamSubscription<double>? _levels;
+  LiveTranscriber? _transcriber;
+  StreamSubscription<Uint8List>? _chunks;
+  StreamSubscription<String>? _partials;
   DateTime? _recordingStartedAt;
   DateTime? _recordingEndedAt;
   DateTime? _candidatesShownAt;
@@ -227,6 +260,14 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
         noticeId: state.noticeId,
       ),
     );
+    // Asked first so a recognition permission prompt never cuts into speech.
+    final transcriber = _createTranscriber();
+    _transcriber = transcriber;
+    final transcribing = await transcriber.start();
+    if (generation != _generation) {
+      await transcriber.stop();
+      return;
+    }
     try {
       await recorder.start();
     } on Object catch (error) {
@@ -247,6 +288,13 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
     _recordingStartedAt = _now();
     _ticker = Timer.periodic(tick, (_) => add(const _Ticked()));
     _levels = recorder.levels.listen((level) => add(_LevelChanged(level)));
+    if (transcribing) {
+      _chunks = recorder.chunks.listen(transcriber.append);
+      _partials = transcriber.partials.listen(
+        (text) => add(_LiveTextChanged(generation, text)),
+      );
+      emit(state.copyWith(liveTextAvailable: true));
+    }
     unawaited(
       recorder.completed.then(
         (audio) => add(_RecordingEnded(generation, Success(audio))),
@@ -495,6 +543,19 @@ class UtteranceBloc extends Bloc<UtteranceEvent, UtteranceState> {
     _ticker = null;
     await _levels?.cancel();
     _levels = null;
+    await _chunks?.cancel();
+    _chunks = null;
+    await _partials?.cancel();
+    _partials = null;
+    final transcriber = _transcriber;
+    _transcriber = null;
+    if (transcriber != null) {
+      try {
+        await transcriber.stop();
+      } on Object {
+        // Live text is optional.
+      }
+    }
     final recorder = _recorder;
     _recorder = null;
     _recordingStartedAt = null;

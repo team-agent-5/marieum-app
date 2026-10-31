@@ -16,6 +16,7 @@ import 'package:marieum_app/features/speak/domain/entities/speak_mode.dart';
 import 'package:marieum_app/features/speak/presentation/bloc/utterance_bloc.dart';
 import 'package:marieum_app/features/speak/presentation/cubit/speak_mode_cubit.dart';
 import 'package:marieum_app/features/speak/presentation/widgets/quick_phrase_carousel.dart';
+import 'package:marieum_app/features/speak/presentation/widgets/recording_view.dart';
 import 'package:marieum_app/features/speak/presentation/widgets/speak_cta.dart';
 import 'package:marieum_app/features/speak/presentation/widgets/utterance_sheet.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -30,6 +31,7 @@ class SpeakView extends StatefulWidget {
 class _SpeakViewState extends State<SpeakView> {
   bool _sheetOpen = false;
   BuildContext? _sheetContext;
+  Route<void>? _recordingRoute;
 
   void _onUtterance(BuildContext context, UtteranceState state) {
     if (state.phase.usesSheet && !_sheetOpen) {
@@ -38,6 +40,32 @@ class _SpeakViewState extends State<SpeakView> {
       final sheet = _sheetContext;
       if (sheet != null && sheet.mounted) Navigator.of(sheet).pop();
     }
+    final recording = state.phase == UtterancePhase.recording;
+    final route = _recordingRoute;
+    if (recording && route == null) {
+      unawaited(_openRecording(context));
+    } else if (!recording && route != null) {
+      final navigator = route.navigator;
+      if (navigator == null) return;
+      if (route.isCurrent) {
+        navigator.pop();
+      } else {
+        navigator.removeRoute(route);
+      }
+    }
+  }
+
+  Future<void> _openRecording(BuildContext context) async {
+    final utterance = context.read<UtteranceBloc>();
+    final route = MaterialPageRoute<void>(
+      builder: (_) => BlocProvider.value(
+        value: utterance,
+        child: const RecordingView(),
+      ),
+    );
+    _recordingRoute = route;
+    await Navigator.of(context, rootNavigator: true).push(route);
+    if (_recordingRoute == route) _recordingRoute = null;
   }
 
   Future<void> _openSheet(BuildContext context) async {
