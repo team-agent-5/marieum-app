@@ -11,7 +11,6 @@ import 'package:marieum_app/core/di/voice_dependencies.dart';
 import 'package:marieum_app/core/haptics/haptics.dart';
 import 'package:marieum_app/core/network/api_client.dart';
 import 'package:marieum_app/core/network/session_expiry_signal.dart';
-import 'package:marieum_app/core/speech/live_transcriber.dart';
 import 'package:marieum_app/core/storage/prefs_store.dart';
 import 'package:marieum_app/core/storage/secure_token_store.dart';
 import 'package:marieum_app/core/storage/sequence_store.dart';
@@ -170,7 +169,6 @@ Future<GetIt> configureDependencies({
       () => UtteranceBloc(
         repository: dependencies<UtteranceRepository>(),
         createRecorder: dependencies.call<Recorder>,
-        createTranscriber: dependencies.call<LiveTranscriber>,
         haptics: dependencies<VoiceHaptics>(),
       ),
     );
