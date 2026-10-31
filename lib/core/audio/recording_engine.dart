@@ -63,13 +63,14 @@ class PlatformRecordingEngine implements RecordingEngine {
 }
 
 /// iOS live mode: the microphone of the engine that also plays the app's
-/// voice, so echo cancellation can remove that voice. Apple's gain control
-/// and a little make-up gain keep speech strong after processing.
+/// voice, so echo cancellation can remove that voice. A fixed make-up gain
+/// keeps speech strong after processing; automatic gain stays off because
+/// it raised distant sound whenever the patient was quiet.
 class DuplexRecordingEngine implements RecordingEngine {
   DuplexRecordingEngine({DuplexAudio? audio})
     : _audio = audio ?? DuplexAudio.instance;
 
-  static const gainDb = 6.0;
+  static const gainDb = 12.0;
 
   final DuplexAudio _audio;
 

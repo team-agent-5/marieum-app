@@ -129,11 +129,13 @@ class FlutterTtsEngine implements TtsEngine {
     // Callbacks also settle cancellation, unlike the native iOS speak result.
     await _plugin.awaitSpeakCompletion(false);
     if (_platform == VoicePlatform.ios) {
-      final result = await _plugin
-          .setIosAudioCategory(IosTextToSpeechAudioCategory.playAndRecord, [
-            IosTextToSpeechAudioCategoryOptions.defaultToSpeaker,
-            IosTextToSpeechAudioCategoryOptions.allowBluetooth,
-          ]);
+      final result = await _plugin.setIosAudioCategory(
+        IosTextToSpeechAudioCategory.playAndRecord,
+        [
+          IosTextToSpeechAudioCategoryOptions.defaultToSpeaker,
+          IosTextToSpeechAudioCategoryOptions.allowBluetooth,
+        ],
+      );
       if (result != 1) throw const TtsFailure('오디오 세션을 설정하지 못했습니다.');
     }
     await _plugin.setLanguage('ko-KR');

@@ -98,10 +98,12 @@ public class DuplexAudioPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     try session.setCategory(
       .playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
     try session.setActive(true)
+    preferDirectionalMic(session)
 
     let input = engine.inputNode
     try input.setVoiceProcessingEnabled(true)
-    // Apple's gain control keeps quiet speakers audible after processing.
+    // Off by default: automatic gain raises distant sound whenever the
+    // patient is quiet. A fixed make-up gain is applied instead.
     input.isVoiceProcessingAGCEnabled = agc
     if #available(iOS 17.0, *) {
       // Only the app's own voice is playing; nothing else should be ducked.
@@ -114,6 +116,21 @@ public class DuplexAudioPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     engine.prepare()
     try engine.start()
     running = true
+  }
+
+  /// On the built-in microphone, uses the bottom one (nearest the mouth)
+  /// with a cardioid pattern so sound from behind and around is weaker.
+  /// A headset or other external microphone is left as chosen.
+  private func preferDirectionalMic(_ session: AVAudioSession) {
+    guard session.currentRoute.inputs.first?.portType == .builtInMic,
+      let mic = session.availableInputs?.first(where: { $0.portType == .builtInMic }),
+      let bottom = mic.dataSources?.first(where: { $0.orientation == .bottom })
+    else { return }
+    if bottom.supportedPolarPatterns?.contains(.cardioid) == true {
+      try? bottom.setPreferredPolarPattern(.cardioid)
+    }
+    try? mic.setPreferredDataSource(bottom)
+    try? session.setPreferredInput(mic)
   }
 
   private func connect() throws {
