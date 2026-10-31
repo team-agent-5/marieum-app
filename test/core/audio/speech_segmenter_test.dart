@@ -12,38 +12,43 @@ void main() {
 
     setUp(() => segmenter = SpeechSegmenter());
 
-    Uint8List? feed(double level, [int count = 1]) {
-      Uint8List? out;
-      for (var i = 0; i < count; i++) {
-        out = segmenter.add(chunk(), level: level) ?? out;
-      }
-      return out;
-    }
+    List<SegmentSignal> feed(double level, [int count = 1]) => [
+      for (var i = 0; i < count; i++) ?segmenter.add(chunk(), level: level),
+    ];
 
-    test('cuts a segment after a pause and keeps a little lead-in', () {
-      expect(feed(0.1, 5), isNull);
-      expect(feed(0.6, 6), isNull);
+    int bytes(List<SegmentSignal> signals) =>
+        signals.fold(0, (sum, s) => sum + s.audio.length);
+
+    test('streams a segment from its lead-in to the pause', () {
+      expect(feed(0.1, 5), isEmpty);
+      final voice = feed(0.6, 6);
+      expect(voice.first, isA<SegmentStarted>());
+      // 300 ms lead-in plus the first voice chunk.
+      expect(voice.first.audio.length, 3200 * 4);
+      expect(voice.skip(1), everyElement(isA<SegmentContinued>()));
       expect(segmenter.hearing, isTrue);
-      final segment = feed(0.1, 7);
-      expect(segment, isNotNull);
+      final pause = feed(0.1, 7);
+      expect(pause.last, isA<SegmentEnded>());
+      expect((pause.last as SegmentEnded).kept, isTrue);
       // 300 ms lead-in + 600 ms voice + 700 ms pause.
-      expect(segment!.length, 3200 * 16);
+      expect(bytes([...voice, ...pause]), 3200 * 16);
       expect(segmenter.hearing, isFalse);
     });
 
-    test('ignores a click shorter than the minimum speech', () {
+    test('marks a click shorter than the minimum speech as not kept', () {
       feed(0.6, 2);
-      expect(feed(0.1, 7), isNull);
+      final ended = feed(0.1, 7).last as SegmentEnded;
+      expect(ended.kept, isFalse);
     });
 
-    test('splits long speech at the maximum segment length', () {
-      expect(feed(0.7, 80), isNotNull);
+    test('ends long speech at the maximum segment length', () {
+      expect(feed(0.7, 80).whereType<SegmentEnded>(), hasLength(1));
     });
 
     test('reset drops the segment in progress', () {
       feed(0.7, 5);
       segmenter.reset();
-      expect(feed(0.1, 7), isNull);
+      expect(feed(0.1, 7), isEmpty);
     });
   });
 }

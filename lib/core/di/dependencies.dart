@@ -40,11 +40,13 @@ import 'package:marieum_app/features/settings/data/datasources/settings_mirror.d
 import 'package:marieum_app/features/settings/data/repositories/settings_repository_impl.dart';
 import 'package:marieum_app/features/settings/domain/repositories/settings_repository.dart';
 import 'package:marieum_app/features/settings/presentation/cubit/settings_cubit.dart';
+import 'package:marieum_app/features/speak/data/datasources/phrase_stream_source.dart';
 import 'package:marieum_app/features/speak/data/datasources/selection_log_queue.dart';
 import 'package:marieum_app/features/speak/data/datasources/speak_preferences_data_source.dart';
 import 'package:marieum_app/features/speak/data/datasources/utterance_data_source.dart';
 import 'package:marieum_app/features/speak/data/repositories/speak_mode_repository_impl.dart';
 import 'package:marieum_app/features/speak/data/repositories/utterance_repository_impl.dart';
+import 'package:marieum_app/features/speak/domain/repositories/live_stream.dart';
 import 'package:marieum_app/features/speak/domain/repositories/speak_mode_repository.dart';
 import 'package:marieum_app/features/speak/domain/repositories/utterance_repository.dart';
 import 'package:marieum_app/features/speak/presentation/bloc/utterance_bloc.dart';
@@ -168,9 +170,19 @@ Future<GetIt> configureDependencies({
         ),
       ),
     )
+    ..registerLazySingleton<LiveStream>(
+      () => PhraseStreamSource(
+        endpoint: PhraseStreamSource.endpointFor(
+          config.wsUrl.isEmpty ? config.baseUrl : config.wsUrl,
+        ),
+        tokens: dependencies<SecureTokenStore>(),
+        expiry: dependencies<SessionExpirySignal>(),
+      ),
+    )
     ..registerFactory<LiveSessionCubit>(
       () => LiveSessionCubit(
         mic: dependencies<MicStream>(),
+        stream: dependencies<LiveStream>(),
         repository: dependencies<UtteranceRepository>(),
         tts: dependencies<TtsPort>(),
       ),

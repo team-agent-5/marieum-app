@@ -8,7 +8,7 @@ abstract final class AppLog {
   static void net(String message) => _write('net', message);
   static void speak(String message) => _write('speak', message);
   static void tts(String message) => _write('tts', message);
-  static void stt(String message) => _write('stt', message);
+  static void ws(String message) => _write('ws', message);
 
   static void _write(String tag, String message) {
     if (!enabled) return;
