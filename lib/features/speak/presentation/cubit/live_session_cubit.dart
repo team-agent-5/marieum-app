@@ -190,6 +190,17 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   /// The first words reach the screen about this long after speech starts.
   static const _interimLag = Duration(milliseconds: 500);
 
+  /// A sentence needs at least this much voice on the microphone. The
+  /// recognizer makes up sentences out of room noise and silence.
+  static const minVoice = Duration(milliseconds: 300);
+
+  /// Input this far below the voice threshold still counts as the
+  /// patient's voice here, so quiet speakers are not cut.
+  static const _voiceSlack = 0.08;
+
+  /// The lowest level that counts as voice, about -40 dBFS.
+  static const _voiceFloor = 0.2;
+
   /// Sends silence instead of the microphone while the app's voice plays.
   /// Android cannot cancel the app's own media playback from the input, so
   /// without this the server hears the app and the sentence is spoken over
@@ -235,6 +246,9 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   /// A finished but open-ended sentence kept back for the rest of it.
   _LivePlayback? _held;
   Timer? _holdTimer;
+
+  /// When the microphone picked up voice, newest last, for [minVoice].
+  final _voiced = <({DateTime at, int ms})>[];
 
   /// Sentences waiting for the patient to confirm them by a tap.
   final _review = <int, _LivePlayback>{};
@@ -296,6 +310,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     }
     _levels.add(chunk, level: level);
     if (_levels.hearing) _lastVoiceAt = _now();
+    _noteVoice(chunk, level);
     final mutedUntil = _mutedUntil;
     final muted =
         muteWhileSpeaking &&
@@ -319,6 +334,12 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
         // The server only reads what it hears, so this is also the latest
         // sign of the patient's voice when the input level stays low.
         _lastVoiceAt = _now();
+        if (_currentId == null &&
+            _voiceSince(_now().subtract(const Duration(seconds: 3))) <
+                const Duration(milliseconds: 100)) {
+          // Nothing reached the microphone; likely made up from noise.
+          return;
+        }
         final held = _held;
         final id = _currentId ??= held?.id ?? _nextId++;
         _startedAt.putIfAbsent(id, () => _now().subtract(_interimLag));
@@ -385,6 +406,25 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
       'final=${finalAt.toIso8601String()} '
       'asr_ms=${finalAt.difference(lastVoiceAt).inMilliseconds}',
     );
+    final heldNow = _held;
+    final from =
+        (_startedAt[id] ?? finalAt.subtract(const Duration(seconds: 10)))
+            .subtract(const Duration(milliseconds: 1500));
+    if (_voiceSince(from) < minVoice) {
+      AppLog.speak('live segment $id no voice on the microphone, dropped');
+      if (heldNow != null && id == heldNow.id) {
+        _show(
+          id,
+          LiveSegmentStatus.interpreting,
+          heldNow.text,
+          stable: heldNow.text.length,
+        );
+      } else {
+        _startedAt.remove(id);
+        _remove(id);
+      }
+      return;
+    }
     final text = transcription.finalTranscript;
     final weak =
         transcription.isLowConfidence ||
@@ -443,6 +483,24 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     }
     _finish(phrase);
   }
+
+  void _noteVoice(Uint8List chunk, double level) {
+    final now = _now();
+    _voiced.removeWhere(
+      (v) => now.difference(v.at) > const Duration(seconds: 30),
+    );
+    // The app's own voice is not the patient's.
+    if (_sounding) return;
+    final bar = _levels.threshold - _voiceSlack;
+    if (level < (bar > _voiceFloor ? bar : _voiceFloor)) return;
+    _voiced.add((at: now, ms: chunk.length * 1000 ~/ Recorder.bytesPerSecond));
+  }
+
+  Duration _voiceSince(DateTime from) => Duration(
+    milliseconds: _voiced
+        .where((v) => v.at.isAfter(from))
+        .fold(0, (sum, v) => sum + v.ms),
+  );
 
   /// Whether the app is speaking or has just stopped.
   bool get _nearOwnVoice {
