@@ -40,6 +40,8 @@ enum CandidateSource {
   asrVerbatim,
   llmInference,
   llmReconstruction,
+  catalogFallback,
+  rankerFallback,
 }
 
 enum SuggestionMode { proactive, candidates, single, retry }
