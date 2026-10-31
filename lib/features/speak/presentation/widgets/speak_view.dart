@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:marieum_app/app/navigation/push_drawer.dart';
 import 'package:marieum_app/core/error/failure.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
 import 'package:marieum_app/core/ui/adaptive/adaptive_segmented_control.dart';
@@ -223,7 +224,7 @@ class _Greeting extends StatelessWidget {
         child: IconButton(
           tooltip: '메뉴 열기',
           icon: const Icon(Icons.menu_rounded),
-          onPressed: () => Scaffold.of(context).openDrawer(),
+          onPressed: () => PushDrawerScope.of(context).open(),
         ),
       ),
       const SizedBox(width: 12),

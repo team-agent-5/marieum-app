@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:marieum_app/app/navigation/push_drawer.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
 import 'package:marieum_app/core/ui/key_text.dart';
 import 'package:marieum_app/features/quick_phrase/domain/entities/quick_phrase.dart';
@@ -75,7 +76,7 @@ class _QuickPhraseCarouselState extends State<QuickPhraseCarousel>
     if (!mounted || !widget.enabled) return false;
     if (!TickerMode.valuesOf(context).enabled) return false;
     if (MediaQuery.disableAnimationsOf(context)) return false;
-    if (Scaffold.maybeOf(context)?.isDrawerOpen ?? false) return false;
+    if (PushDrawerScope.maybeOf(context)?.isOpen ?? false) return false;
     return ModalRoute.of(context)?.isCurrent ?? true;
   }
 

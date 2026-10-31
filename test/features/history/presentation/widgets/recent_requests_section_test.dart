@@ -1,6 +1,6 @@
 import 'package:bloc_test/bloc_test.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:marieum_app/app/navigation/app_drawer.dart';
 import 'package:marieum_app/core/error/result.dart';
 import 'package:marieum_app/features/history/domain/entities/history_entry.dart';
 import 'package:marieum_app/features/history/domain/repositories/history_repository.dart';
@@ -50,7 +50,10 @@ void main() {
       await tester.tap(find.byTooltip('메뉴 열기'));
       await tester.pumpAndSettle();
       await tester.tap(
-        find.descendant(of: find.byType(Drawer), matching: find.text('물 주세요')),
+        find.descendant(
+          of: find.byType(AppDrawer),
+          matching: find.text('물 주세요'),
+        ),
       );
       await tester.pumpAndSettle();
       expect(router.state.uri.path, '/speak/playback');
