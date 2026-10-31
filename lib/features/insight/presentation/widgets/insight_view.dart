@@ -153,11 +153,13 @@ class _Learning extends StatelessWidget {
             style: AppTokens.copy,
           ),
           const SizedBox(height: 20),
-          LinearProgressIndicator(
-            value: summary.voiceCount / 10,
-            minHeight: 8,
-            semanticsLabel: '학습 진행',
-            semanticsValue: '${summary.voiceCount} / 10번',
+          Semantics(
+            label: '학습 진행 ${summary.voiceCount} / 10번',
+            excludeSemantics: true,
+            child: LinearProgressIndicator(
+              value: (summary.voiceCount / 10).clamp(0, 1).toDouble(),
+              minHeight: 8,
+            ),
           ),
           const SizedBox(height: 10),
           Text('${summary.voiceCount} / 10번'),
