@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
 import 'package:marieum_app/features/speak/presentation/cubit/playback_cubit.dart';
+import 'package:marieum_app/features/speak/presentation/widgets/voice_wave.dart';
 
 class PlaybackView extends StatelessWidget {
   const PlaybackView({super.key});
@@ -55,12 +56,9 @@ class PlaybackView extends StatelessWidget {
                                   style: AppTokens.copy,
                                 ),
                                 const SizedBox(height: 20),
-                                const SizedBox(
-                                  width: 140,
-                                  child: LinearProgressIndicator(value: .72),
-                                ),
+                                const _ReturnProgress(),
                               ] else
-                                const _VoiceWave(),
+                                const VoiceWave(),
                             ],
                           ),
                         ),
@@ -143,37 +141,16 @@ class _PlaybackBadge extends StatelessWidget {
   );
 }
 
-class _VoiceWave extends StatelessWidget {
-  const _VoiceWave();
+class _ReturnProgress extends StatelessWidget {
+  const _ReturnProgress();
   @override
-  Widget build(BuildContext context) => ExcludeSemantics(
-    child: SizedBox(
-      height: 44,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final height in [
-            14.0,
-            24.0,
-            36.0,
-            44.0,
-            30.0,
-            20.0,
-            38.0,
-            26.0,
-            14.0,
-          ])
-            Container(
-              width: 5,
-              height: height,
-              margin: const EdgeInsets.symmetric(horizontal: 3),
-              decoration: BoxDecoration(
-                color: AppTokens.primary,
-                borderRadius: BorderRadius.circular(3),
-              ),
-            ),
-        ],
-      ),
+  Widget build(BuildContext context) => SizedBox(
+    width: 140,
+    child: TweenAnimationBuilder<double>(
+      key: const ValueKey('playback_return_progress'),
+      tween: Tween(begin: 0, end: 1),
+      duration: PlaybackCubit.returnDelay,
+      builder: (context, value, _) => LinearProgressIndicator(value: value),
     ),
   );
 }

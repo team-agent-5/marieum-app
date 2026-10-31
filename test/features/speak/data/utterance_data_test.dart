@@ -98,17 +98,15 @@ void main() {
           for (final rank in [3, 1, 2, 4])
             {'rank': rank, 'text': '문장 $rank', 'score': 0.5},
         ],
-        'fallback_hint': null,
       });
       expect([for (final c in value.candidates) c.rank], [1, 2, 3]);
       expect(value.isEmpty, isFalse);
     });
 
-    test('treats an empty list with a preset hint as no match', () {
+    test('treats an empty list as no match', () {
       final value = UtteranceDto.suggestions({
         'trace_id': 'abc',
         'candidates': <Object>[],
-        'fallback_hint': 'preset',
       });
       expect(value.isEmpty, isTrue);
     });
@@ -126,6 +124,7 @@ void main() {
               as Map<String, Object?>;
       expect(body['patient_prefix'], '물 좀 주세요');
       expect(body['final_transcript'], '물 좀 주세요');
+      expect(body['asr_confidence'], 0.82);
       expect(body['source'], 'voice');
       expect(body['trace_id'], 't1');
       expect(body['previous_log_id'], 41);

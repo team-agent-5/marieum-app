@@ -22,7 +22,6 @@ abstract final class UtteranceDto {
     return Suggestions(
       traceId: _string(body['trace_id']),
       candidates: candidates.take(3).toList(growable: false),
-      fallbackHint: _nonBlank(body['fallback_hint']),
     );
   }
 

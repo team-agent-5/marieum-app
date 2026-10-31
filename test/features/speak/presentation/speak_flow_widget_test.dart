@@ -3,11 +3,13 @@ import 'dart:async';
 import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:marieum_app/core/error/failure.dart';
 import 'package:marieum_app/features/settings/domain/entities/app_settings.dart';
 import 'package:marieum_app/features/settings/presentation/cubit/settings_cubit.dart';
 import 'package:marieum_app/features/speak/domain/entities/speak_mode.dart';
 import 'package:marieum_app/features/speak/domain/entities/utterance.dart';
 import 'package:marieum_app/features/speak/presentation/bloc/utterance_bloc.dart';
+import 'package:marieum_app/features/speak/presentation/widgets/recording_view.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/pump_app.dart';
@@ -133,7 +135,113 @@ void main() {
     });
   });
 
+  group('recording page', () {
+    Future<void> show(WidgetTester tester, UtteranceState state) async {
+      when(() => bloc.state).thenReturn(state);
+      states.add(state);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump(const Duration(milliseconds: 600));
+    }
+
+    testWidgets('opens when recording starts and closes when it ends', (
+      tester,
+    ) async {
+      await pump(tester, const UtteranceState());
+      await show(
+        tester,
+        const UtteranceState(
+          phase: UtterancePhase.recording,
+          elapsed: Duration(seconds: 2),
+        ),
+      );
+      expect(find.byType(RecordingView), findsOneWidget);
+      expect(find.text('내 목소리로 말하기'), findsOneWidget);
+      expect(find.text('정확도 모드'), findsWidgets);
+      expect(find.text('00:02'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('recording_finish')));
+      verify(
+        () => bloc.add(const UtteranceButtonPressed(SpeakMode.precise)),
+      ).called(1);
+
+      await show(tester, const UtteranceState(phase: UtterancePhase.analyzing));
+      expect(find.byType(RecordingView), findsNothing);
+    });
+
+    testWidgets('types live text and cancels from the page', (tester) async {
+      await pump(tester, const UtteranceState());
+      await show(
+        tester,
+        const UtteranceState(
+          phase: UtterancePhase.recording,
+          liveTextAvailable: true,
+          liveText: '물',
+        ),
+      );
+      expect(find.text('실시간 텍스트'), findsOneWidget);
+      expect(find.text('물'), findsOneWidget);
+
+      await show(
+        tester,
+        const UtteranceState(
+          phase: UtterancePhase.recording,
+          liveTextAvailable: true,
+          liveText: '물 주세요',
+        ),
+      );
+      expect(find.text('물'), findsOneWidget);
+      expect(find.text('주세요'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('recording_cancel')));
+      verify(() => bloc.add(const UtteranceCancelPressed())).called(1);
+    });
+
+    testWidgets('explains when live text is unavailable', (tester) async {
+      await pump(tester, const UtteranceState());
+      await show(tester, const UtteranceState(phase: UtterancePhase.recording));
+      expect(find.text('말씀을 마치면 글자로 바꿔 드려요'), findsOneWidget);
+      expect(find.byType(TypedTranscript), findsNothing);
+    });
+  });
+
   group('candidate sheet', () {
+    testWidgets('one clear candidate is shown large and spoken directly', (
+      tester,
+    ) async {
+      await pump(tester, const UtteranceState());
+      const only = Candidate(rank: 1, text: '오늘 좀 피곤해요', score: 0.98);
+      await emit(
+        tester,
+        const UtteranceState(
+          phase: UtterancePhase.suggesting,
+          transcription: _transcription,
+          suggestions: Suggestions(traceId: 's1', candidates: [only]),
+          selected: only,
+        ),
+      );
+      expect(find.text('이렇게 말씀드릴게요'), findsOneWidget);
+      expect(find.text('오늘 좀 피곤해요'), findsOneWidget);
+      expect(find.textContaining('들린 내용'), findsNothing);
+
+      await tester.tap(find.byKey(const ValueKey('utterance_confirm')));
+      verify(() => bloc.add(const UtteranceConfirmPressed())).called(1);
+    });
+
+    testWidgets('failure shows the failure screen with retry', (tester) async {
+      await pump(tester, const UtteranceState());
+      await emit(
+        tester,
+        const UtteranceState(
+          phase: UtterancePhase.failed,
+          notice: NetworkFailure(),
+        ),
+      );
+      expect(find.text('서버에 연결하지 못했어요'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('failed_retry')));
+      verify(() => bloc.add(const UtteranceRetryPressed())).called(1);
+    });
+
     testWidgets('shows heard text, reasons and needs a pick before speaking', (
       tester,
     ) async {
@@ -141,7 +249,7 @@ void main() {
       await emit(tester, _suggesting);
 
       expect(find.text('이렇게 말씀하시려는 거예요?'), findsOneWidget);
-      expect(find.text('들린 내용 · 물 좀 주세요'), findsOneWidget);
+      expect(find.text('들린 내용: "물 좀 주세요"'), findsOneWidget);
       expect(find.text('자주 쓰는 말'), findsOneWidget);
       expect(find.text('이 시간대에 자주 선택'), findsOneWidget);
       expect(find.byKey(const ValueKey('utterance_confirm')), findsNothing);

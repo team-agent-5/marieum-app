@@ -25,9 +25,13 @@ class Recorder {
   _Recording? _current;
   bool _disposed = false;
   final _levels = StreamController<double>.broadcast();
+  final _chunks = StreamController<Uint8List>.broadcast(sync: true);
 
   /// Input loudness of each captured chunk, 0 (silence) to 1 (loud).
   Stream<double> get levels => _levels.stream;
+
+  /// Captured PCM16 chunks as they arrive, capped like the recording itself.
+  Stream<Uint8List> get chunks => _chunks.stream;
 
   Future<RecordedAudio> get completed {
     final current = _current;
@@ -65,10 +69,12 @@ class Recorder {
             final room = maxPcmBytes - current.length;
             final count = chunk.length < room ? chunk.length : room;
             if (count > 0) {
+              final bytes = Uint8List.fromList(chunk.sublist(0, count));
               current
-                ..pcm.add(chunk.sublist(0, count))
+                ..pcm.add(bytes)
                 ..length += count;
               if (!_levels.isClosed) _levels.add(pcmLevel(chunk));
+              if (!_chunks.isClosed) _chunks.add(bytes);
             }
             if (current.length == maxPcmBytes) unawaited(_finish(current));
           },
@@ -144,6 +150,7 @@ class Recorder {
       }
     } finally {
       await _levels.close();
+      await _chunks.close();
       await _engine.dispose();
     }
   }

@@ -1,13 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:marieum_app/core/error/failure.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
 import 'package:marieum_app/core/ui/key_text.dart';
 import 'package:marieum_app/features/quick_phrase/domain/entities/quick_phrase.dart';
 import 'package:marieum_app/features/quick_phrase/presentation/bloc/quick_phrase_bloc.dart';
 import 'package:marieum_app/features/speak/domain/entities/utterance.dart';
 import 'package:marieum_app/features/speak/presentation/bloc/utterance_bloc.dart';
+import 'package:permission_handler/permission_handler.dart';
 
-/// Bottom sheet content for candidates, re-ask, no-match and speaking.
+/// Bottom sheet content for candidates, re-ask, no-match, speaking and
+/// failure.
 /// Popping with a [QuickPhrase] asks the caller to play that phrase.
 class UtteranceSheet extends StatelessWidget {
   const UtteranceSheet({super.key});
@@ -34,6 +39,7 @@ class UtteranceSheet extends StatelessWidget {
                   UtterancePhase.speaking => _Speaking(
                     text: state.spokenText ?? '',
                   ),
+                  UtterancePhase.failed => _Failed(failure: state.notice),
                   _ => _NoMatch(state: state),
                 },
               ],
@@ -67,21 +73,37 @@ class _Candidates extends StatelessWidget {
     final bloc = context.read<UtteranceBloc>();
     final candidates = state.suggestions?.candidates ?? const <Candidate>[];
     final selected = state.selected;
+    if (candidates.length == 1) return _SingleCandidate(state: state);
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          '들린 내용 · ${state.transcription?.heard ?? ''}',
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            color: AppTokens.ink3,
-          ),
+        Row(
+          children: [
+            Container(
+              width: 7,
+              height: 7,
+              decoration: const BoxDecoration(
+                color: AppTokens.primary,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 7),
+            Expanded(
+              child: Text(
+                '들린 내용: "${state.transcription?.finalTranscript ?? ''}"',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF4A5878),
+                ),
+              ),
+            ),
+          ],
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 8),
         Semantics(
           header: true,
           child: const Text(
@@ -118,6 +140,82 @@ class _Candidates extends StatelessWidget {
           icon: Icons.mic_none_rounded,
           label: '다시 말하기',
           onPressed: () => bloc.add(const UtteranceRetryPressed()),
+        ),
+      ],
+    );
+  }
+}
+
+/// A clear utterance: the one verbatim sentence is what was heard, so it is
+/// shown large and spoken with a single tap.
+class _SingleCandidate extends StatelessWidget {
+  const _SingleCandidate({required this.state});
+  final UtteranceState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final bloc = context.read<UtteranceBloc>();
+    final text = state.suggestions!.candidates.single.text;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Semantics(
+          header: true,
+          child: const Text(
+            '이렇게 말씀드릴게요',
+            style: TextStyle(
+              fontSize: 20,
+              height: 1.35,
+              fontWeight: FontWeight.w800,
+              color: AppTokens.ink,
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        Container(
+          constraints: const BoxConstraints(minHeight: 184),
+          alignment: Alignment.center,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: AppTokens.surface,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: AppTokens.primary, width: 2),
+          ),
+          child: KeyText(
+            text,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 48,
+              height: 1.2,
+              letterSpacing: -1.6,
+              fontWeight: FontWeight.w900,
+              color: AppTokens.ink,
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              flex: 2,
+              child: FilledButton.icon(
+                key: const ValueKey('utterance_confirm'),
+                onPressed: () => bloc.add(const UtteranceConfirmPressed()),
+                icon: const Icon(Icons.volume_up_rounded),
+                label: const KeyText('이 말로 말하기'),
+              ),
+            ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: _SecondaryButton(
+                key: const ValueKey('utterance_retry'),
+                icon: Icons.mic_none_rounded,
+                label: '다시',
+                onPressed: () => bloc.add(const UtteranceRetryPressed()),
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -319,6 +417,65 @@ class _Reask extends StatelessWidget {
   );
 }
 
+class _Failed extends StatelessWidget {
+  const _Failed({required this.failure});
+  final Failure? failure;
+
+  @override
+  Widget build(BuildContext context) {
+    final failure = this.failure;
+    final settings = failure is PermissionFailure && failure.permanent;
+    final (icon, title) = switch (failure) {
+      PermissionFailure() => (Icons.mic_off_rounded, '마이크를 쓸 수 없어요'),
+      NetworkFailure() || TimeoutFailure() => (
+        Icons.wifi_off_rounded,
+        '서버에 연결하지 못했어요',
+      ),
+      TtsFailure() || TtsUnavailableFailure() => (
+        Icons.volume_off_rounded,
+        '소리를 재생하지 못했어요',
+      ),
+      _ => (Icons.error_outline_rounded, '말씀을 전달하지 못했어요'),
+    };
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _Recovery(
+          icon: icon,
+          kicker: '문제가 생겼어요',
+          title: title,
+          body: failure?.message ?? '잠시 뒤 다시 시도해 주세요.',
+          danger: true,
+        ),
+        const SizedBox(height: 6),
+        if (settings)
+          FilledButton.icon(
+            key: const ValueKey('failed_settings'),
+            onPressed: () => unawaited(openAppSettings()),
+            icon: const Icon(Icons.settings_rounded),
+            label: const KeyText('설정 열기'),
+          )
+        else
+          FilledButton.icon(
+            key: const ValueKey('failed_retry'),
+            onPressed: () => context.read<UtteranceBloc>().add(
+              const UtteranceRetryPressed(),
+            ),
+            icon: const Icon(Icons.mic_rounded),
+            label: const KeyText('다시 말하기'),
+          ),
+        const SizedBox(height: 9),
+        _SecondaryButton(
+          icon: Icons.close_rounded,
+          label: '닫기',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ],
+    );
+  }
+}
+
 class _ReaskExhausted extends StatelessWidget {
   const _ReaskExhausted();
 
@@ -428,12 +585,14 @@ class _Recovery extends StatelessWidget {
     required this.kicker,
     required this.title,
     required this.body,
+    this.danger = false,
   });
 
   final IconData icon;
   final String kicker;
   final String title;
   final String body;
+  final bool danger;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -444,18 +603,22 @@ class _Recovery extends StatelessWidget {
           width: 62,
           height: 62,
           decoration: BoxDecoration(
-            color: AppTokens.primarySoft,
+            color: danger ? AppTokens.dangerSoft : AppTokens.primarySoft,
             borderRadius: BorderRadius.circular(21),
           ),
-          child: Icon(icon, size: 30, color: AppTokens.primaryStrong),
+          child: Icon(
+            icon,
+            size: 30,
+            color: danger ? AppTokens.danger : AppTokens.primaryStrong,
+          ),
         ),
         const SizedBox(height: 10),
         Text(
           kicker,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w800,
-            color: AppTokens.primaryStrong,
+            color: danger ? AppTokens.danger : AppTokens.primaryStrong,
           ),
         ),
         const SizedBox(height: 6),

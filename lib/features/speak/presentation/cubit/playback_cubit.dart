@@ -28,6 +28,9 @@ class PlaybackCubit extends Cubit<PlaybackState> {
     required this._tts,
     required this._haptics,
   }) : super(PlaybackState(text: request.text));
+
+  static const returnDelay = Duration(seconds: 2);
+
   final TtsPort _tts;
   final VoiceHaptics _haptics;
   Timer? _returnTimer;
@@ -67,7 +70,7 @@ class PlaybackCubit extends Cubit<PlaybackState> {
     switch (result) {
       case Success():
         emit(PlaybackState(text: state.text, status: PlaybackStatus.completed));
-        _returnTimer = Timer(const Duration(seconds: 2), () {
+        _returnTimer = Timer(returnDelay, () {
           if (!_closing && !isClosed && revision == _revision) {
             emit(
               PlaybackState(text: state.text, status: PlaybackStatus.closed),

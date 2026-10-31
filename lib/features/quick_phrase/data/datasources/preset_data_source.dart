@@ -2,8 +2,6 @@ import 'package:marieum_app/core/error/result.dart';
 import 'package:marieum_app/core/network/api_client.dart';
 import 'package:marieum_app/features/quick_phrase/data/dto/preset_receipt_dto.dart';
 import 'package:marieum_app/features/quick_phrase/domain/entities/preset_receipt.dart';
-import 'package:marieum_app/features/quick_phrase/domain/entities/quick_phrase.dart';
-import 'package:uuid/uuid.dart';
 
 // Kept as an interface so remote and mock sources can be swapped.
 // ignore: one_member_abstracts
@@ -20,16 +18,5 @@ class RemotePresetDataSource implements PresetDataSource {
     method: 'POST',
     data: {'preset_index': presetIndex},
     decode: PresetReceiptDto.fromJson,
-  );
-}
-
-class MockPresetDataSource implements PresetDataSource {
-  @override
-  Future<Result<PresetReceipt>> usePreset(int presetIndex) async => Success(
-    PresetReceipt(
-      logId: const Uuid().v4(),
-      finalText: defaultQuickPhrases[presetIndex - 1].text,
-      presetIndex: presetIndex,
-    ),
   );
 }

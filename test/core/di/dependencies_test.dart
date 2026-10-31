@@ -19,7 +19,7 @@ void main() {
     test(
       'loads persisted preferences and registers one disposable router',
       () async {
-        const config = AppConfig(baseUrl: '', wsUrl: '', useMock: true);
+        const config = AppConfig(baseUrl: '', wsUrl: '');
         final vault = _MockVault();
         when(vault.clearAll).thenAnswer((_) async {});
         final dependencies = await configureDependencies(
