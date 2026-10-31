@@ -167,19 +167,6 @@ double pcmLevel(List<int> chunk) {
   return ((db + 50) / 50).clamp(0, 1).toDouble();
 }
 
-final _noise = math.Random();
-
-/// PCM16 at about -70 dBFS, sent in place of sound held back. Recognizers
-/// tend to invent words in digital silence but not in faint room noise.
-Uint8List quietNoise(int bytes) {
-  final out = Uint8List(bytes);
-  final data = ByteData.sublistView(out);
-  for (var i = 0; i + 1 < bytes; i += 2) {
-    data.setInt16(i, _noise.nextInt(21) - 10, Endian.little);
-  }
-  return out;
-}
-
 class _Recording {
   final pcm = BytesBuilder();
   int length = 0;

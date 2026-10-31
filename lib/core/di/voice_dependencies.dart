@@ -67,10 +67,7 @@ void registerVoiceDependencies(
             : PlatformRecordingEngine(),
         permission: PlatformMicrophonePermission(),
         audioSession: dependencies<VoiceAudioSession>(),
-        // Android mutes what it sends while the app speaks, so it keeps the
-        // recognition source; the communication source that echo
-        // cancellation needs blurs weak consonants.
-        echoCancel: platform == VoicePlatform.ios,
+        echoCancel: true,
       ),
     )
     ..registerLazySingleton<VoiceHaptics>(

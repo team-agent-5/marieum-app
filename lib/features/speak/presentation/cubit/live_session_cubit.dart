@@ -3,10 +3,8 @@ import 'dart:typed_data';
 
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:marieum_app/core/audio/live_sound.dart';
 import 'package:marieum_app/core/audio/mic_stream.dart';
 import 'package:marieum_app/core/audio/recorder.dart';
-import 'package:marieum_app/core/audio/speech_pace.dart';
 import 'package:marieum_app/core/audio/speech_segmenter.dart';
 import 'package:marieum_app/core/error/failure.dart';
 import 'package:marieum_app/core/error/result.dart';
@@ -27,7 +25,6 @@ class LiveSegment extends Equatable {
     required this.at,
     this.status = LiveSegmentStatus.interpreting,
     this.text = '',
-    this.stable = 0,
   });
 
   final int id;
@@ -40,23 +37,16 @@ class LiveSegment extends Equatable {
   /// sentence or the failure reason.
   final String text;
 
-  /// How much of [text] the server has stopped changing while interpreting.
-  final int stable;
-
-  LiveSegment copyWith({
-    LiveSegmentStatus? status,
-    String? text,
-    int? stable,
-  }) => LiveSegment(
-    id: id,
-    at: at,
-    status: status ?? this.status,
-    text: text ?? this.text,
-    stable: stable ?? this.stable,
-  );
+  LiveSegment copyWith({LiveSegmentStatus? status, String? text}) =>
+      LiveSegment(
+        id: id,
+        at: at,
+        status: status ?? this.status,
+        text: text ?? this.text,
+      );
 
   @override
-  List<Object?> get props => [id, at, status, text, stable];
+  List<Object?> get props => [id, at, status, text];
 }
 
 class LiveSessionState extends Equatable {
@@ -69,7 +59,6 @@ class LiveSessionState extends Equatable {
     this.elapsed = Duration.zero,
     this.segments = const [],
     this.failure,
-    this.reconnecting = false,
   });
 
   final LiveStatus status;
@@ -89,9 +78,6 @@ class LiveSessionState extends Equatable {
   final List<LiveSegment> segments;
   final Failure? failure;
 
-  /// The server cannot reach its recognizer for the moment.
-  final bool reconnecting;
-
   bool get playing => playingId != null;
 
   LiveSessionState copyWith({
@@ -103,7 +89,6 @@ class LiveSessionState extends Equatable {
     Duration? elapsed,
     List<LiveSegment>? segments,
     Failure? failure,
-    bool? reconnecting,
   }) => LiveSessionState(
     status: status ?? this.status,
     levels: levels ?? this.levels,
@@ -113,7 +98,6 @@ class LiveSessionState extends Equatable {
     elapsed: elapsed ?? this.elapsed,
     segments: segments ?? this.segments,
     failure: failure ?? this.failure,
-    reconnecting: reconnecting ?? this.reconnecting,
   );
 
   @override
@@ -126,7 +110,6 @@ class LiveSessionState extends Equatable {
     elapsed,
     segments,
     failure,
-    reconnecting,
   ];
 }
 
@@ -141,12 +124,9 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     required this._repository,
     required this._tts,
     this.muteWhileSpeaking = false,
-    this._pace,
     SpeechSegmenter? segmenter,
-    LiveSound? sound,
     DateTime Function()? now,
   }) : _levels = segmenter ?? SpeechSegmenter(),
-       _sound = sound ?? LiveSound(),
        _now = now ?? DateTime.now,
        super(const LiveSessionState());
 
@@ -165,46 +145,18 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   static const speakConfidence = 0.6;
 
   /// How long after the app's voice ends its echo is still kept out.
-  static const muteTail = Duration(milliseconds: 300);
+  static const muteTail = Duration(milliseconds: 600);
 
-  /// Without a pace setting, how long an unfinished sentence waits for the
-  /// rest of it.
-  static const defaultContinuationWait = Duration(milliseconds: 1200);
-
-  /// How long an unfinished sentence waits once the patient goes on, for
-  /// the recognizer to close the rest.
-  static const continuationLimit = Duration(seconds: 8);
-
-  /// Most pieces joined into one sentence.
-  static const maxPieces = 3;
-
-  /// The first words reach the screen about this long after speech starts.
-  static const _interimLag = Duration(milliseconds: 500);
-
-  /// A sentence needs at least this much voice on the microphone. The
-  /// recognizer makes up sentences out of room noise and silence.
-  static const minVoice = Duration(milliseconds: 300);
-
-  /// Input this far below the voice threshold still counts as the
-  /// patient's voice here, so quiet speakers are not cut.
-  static const _voiceSlack = 0.08;
-
-  /// The lowest level that counts as voice, about -40 dBFS.
-  static const _voiceFloor = 0.2;
-
-  /// Sends near silence instead of the microphone while the app's voice
-  /// plays. Android cannot cancel the app's own playback from the input,
-  /// and what iOS echo cancellation leaves still reached the recognizer, so
-  /// without this the server hears the app and the sentence is spoken over
-  /// and over.
+  /// Sends silence instead of the microphone while the app speaks. Android
+  /// cannot cancel the app's own media playback from the input, so without
+  /// this the server hears the app and the sentence is spoken again and
+  /// again.
   final bool muteWhileSpeaking;
 
   final MicStream _mic;
   final LiveStream _stream;
-  final LiveSound _sound;
   final UtteranceRepository _repository;
   final PlaybackTtsPort _tts;
-  final SpeechPaceTracker? _pace;
 
   /// Only tracks the room's loudness for the input display; sentences are
   /// split by the server.
@@ -221,27 +173,11 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   bool _ended = false;
   bool _speechBusy = false;
   DateTime? _mutedUntil;
-
-  /// Whether the app's voice is actually coming out of the speaker, as
-  /// opposed to still being prepared.
-  bool _sounding = false;
   DateTime? _warmUntil;
 
   /// The sentence the server is reading now, shown as it changes.
   int? _currentId;
   DateTime? _lastVoiceAt;
-
-  String _lastInterim = '';
-
-  /// When each sentence's first words came in.
-  final _startedAt = <int, DateTime>{};
-
-  /// A finished but open-ended sentence kept back for the rest of it.
-  _LivePlayback? _held;
-  Timer? _holdTimer;
-
-  /// When the microphone picked up voice, newest last, for [minVoice].
-  final _voiced = <({DateTime at, int ms})>[];
 
   /// Whether a connection problem is already on screen.
   bool _showingFailure = false;
@@ -300,14 +236,11 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     }
     _levels.add(chunk, level: level);
     if (_levels.hearing) _lastVoiceAt = _now();
-    _noteVoice(chunk, level);
     final mutedUntil = _mutedUntil;
     final muted =
         muteWhileSpeaking &&
-        (_sounding || (mutedUntil != null && _now().isBefore(mutedUntil)));
-    _conversation?.add(
-      muted ? quietNoise(chunk.length) : _sound.process(chunk),
-    );
+        (_speechBusy || (mutedUntil != null && _now().isBefore(mutedUntil)));
+    _conversation?.add(muted ? Uint8List(chunk.length) : chunk);
     emit(
       state.copyWith(
         levels: levels,
@@ -322,52 +255,17 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     switch (event) {
       case LiveInterim(:final text):
         if (_isEcho(text)) return;
-        _recovered();
-        // The server only reads what it hears, so this is also the latest
-        // sign of the patient's voice when the input level stays low.
-        _lastVoiceAt = _now();
-        if (_currentId == null &&
-            _voiceSince(_now().subtract(const Duration(seconds: 3))) <
-                const Duration(milliseconds: 100)) {
-          // Nothing reached the microphone; likely made up from noise.
-          return;
-        }
-        final held = _held;
-        final id = _currentId ??= held?.id ?? _nextId++;
-        _startedAt.putIfAbsent(id, () => _now().subtract(_interimLag));
-        final shown = LivePhrasePolicy.displayText(text);
-        final stable = LivePhrasePolicy.stablePrefix(_lastInterim, shown);
-        _lastInterim = shown;
-        if (held != null && id == held.id) {
-          // The patient went on; the open sentence waits for the rest.
-          _holdFor(continuationLimit);
-          _show(
-            id,
-            LiveSegmentStatus.interpreting,
-            '${held.text} $shown',
-            stable: held.text.length + 1 + stable,
-          );
-          return;
-        }
-        _show(id, LiveSegmentStatus.interpreting, shown, stable: stable);
+        final id = _currentId ??= _nextId++;
+        _clearFailure();
+        _show(id, LiveSegmentStatus.interpreting, text);
       case LiveFinal(:final transcription):
         final id = _currentId ?? _nextId++;
         _currentId = null;
-        _lastInterim = '';
-        _recovered();
+        _clearFailure();
         _settle(id, transcription);
-      case LiveUpstreamDown():
-        AppLog.speak('live recognizer unavailable');
-        if (!state.reconnecting) emit(state.copyWith(reconnecting: true));
       case LiveUnclear():
         final id = _currentId;
         _currentId = null;
-        _lastInterim = '';
-        final held = _held;
-        if (held != null) {
-          _releaseHeld();
-          if (id == held.id) return;
-        }
         // Silence the server closed off is not worth a line.
         if (id != null) _show(id, LiveSegmentStatus.unclear, '');
       case LiveFailed(:final failure, :final recovering):
@@ -375,7 +273,6 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
           emit(state.copyWith(status: LiveStatus.failed, failure: failure));
           return;
         }
-        _releaseHeld();
         if (_showingFailure) return;
         _showingFailure = true;
         final id = _currentId ?? _nextId++;
@@ -384,157 +281,33 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     }
   }
 
-  void _recovered() {
-    _showingFailure = false;
-    if (state.reconnecting) emit(state.copyWith(reconnecting: false));
-  }
+  void _clearFailure() => _showingFailure = false;
 
   void _settle(int id, Transcription transcription) {
     final finalAt = _now();
     final lastVoiceAt = _lastVoiceAt ?? finalAt;
-    _lastVoiceAt = null;
     AppLog.speak(
       'live segment $id last_voice=${lastVoiceAt.toIso8601String()} '
       'final=${finalAt.toIso8601String()} '
       'asr_ms=${finalAt.difference(lastVoiceAt).inMilliseconds}',
     );
-    final heldNow = _held;
-    final from =
-        (_startedAt[id] ?? finalAt.subtract(const Duration(seconds: 10)))
-            .subtract(const Duration(milliseconds: 1500));
-    final voice = _voiceSince(from);
-    if (voice < minVoice) {
-      AppLog.speak('live segment $id no voice on the microphone, dropped');
-      if (heldNow != null && id == heldNow.id) {
-        _show(
-          id,
-          LiveSegmentStatus.interpreting,
-          heldNow.text,
-          stable: heldNow.text.length,
-        );
-      } else {
-        _startedAt.remove(id);
-        _remove(id);
-      }
+    if (_isEcho(transcription.finalTranscript)) {
+      AppLog.speak("live segment $id was the app's own voice");
+      _remove(id);
       return;
     }
-    final text = transcription.finalTranscript;
-    final weak =
-        transcription.isLowConfidence ||
+    if (transcription.isLowConfidence ||
         transcription.asrConfidence < speakConfidence ||
-        text.contains('�');
-    final echo = _isEcho(text);
-    // A scrap heard right after the app spoke is most likely its own voice.
-    final scrap = _nearOwnVoice && (LivePhrasePolicy.isFragment(text) || weak);
-    final runaway =
-        LivePhrasePolicy.isRunaway(text) ||
-        LivePhrasePolicy.isOverlong(text, voice);
-    AppLog.speak(
-      'live segment $id voice=${voice.inMilliseconds}ms '
-      'chars=${text.length} runaway=$runaway',
-    );
-    if (echo || scrap || runaway || weak) {
-      // What was kept back is said as it is; this piece gets its own line.
-      final held = _held;
-      var own = id;
-      if (held != null) {
-        _releaseHeld();
-        if (id == held.id) own = _nextId++;
-      }
-      _startedAt.remove(id);
-      if (echo || scrap) {
-        AppLog.speak(
-          "live segment $own ${echo ? "was the app's own voice" : 'scrap'}",
-        );
-        _remove(own);
-      } else if (runaway) {
-        AppLog.speak('live segment $own runaway text, not spoken');
-        _show(own, LiveSegmentStatus.unclear, '');
-      } else {
-        _show(
-          own,
-          LiveSegmentStatus.unclear,
-          LivePhrasePolicy.displayText(transcription.heard),
-        );
-      }
-      return;
-    }
-    var phrase = _LivePlayback(id, transcription, lastVoiceAt, finalAt);
-    final held = _held;
-    if (held != null) {
-      _held = null;
-      _holdTimer?.cancel();
-      phrase = held.join(phrase);
-      AppLog.speak('live segment ${phrase.id} joined ${phrase.pieces} pieces');
-    }
-    if (LivePhrasePolicy.isUnfinished(phrase.text) &&
-        phrase.pieces < maxPieces) {
-      _held = phrase;
-      _holdFor(_pace?.continuationWait ?? defaultContinuationWait);
-      AppLog.speak('live segment ${phrase.id} open-ended, waiting');
+        transcription.finalTranscript.contains('�')) {
       _show(
-        phrase.id,
-        LiveSegmentStatus.interpreting,
-        phrase.text,
-        stable: phrase.text.length,
+        id,
+        LiveSegmentStatus.unclear,
+        LivePhrasePolicy.displayText(transcription.heard),
       );
       return;
     }
-    _finish(phrase);
-  }
-
-  void _noteVoice(Uint8List chunk, double level) {
-    final now = _now();
-    _voiced.removeWhere(
-      (v) => now.difference(v.at) > const Duration(seconds: 30),
-    );
-    // The app's own voice is not the patient's.
-    if (_sounding) return;
-    final bar = _levels.threshold - _voiceSlack;
-    if (level < (bar > _voiceFloor ? bar : _voiceFloor)) return;
-    _voiced.add((at: now, ms: chunk.length * 1000 ~/ Recorder.bytesPerSecond));
-  }
-
-  Duration _voiceSince(DateTime from) => Duration(
-    milliseconds: _voiced
-        .where((v) => v.at.isAfter(from))
-        .fold(0, (sum, v) => sum + v.ms),
-  );
-
-  /// Whether the app is speaking or has just stopped.
-  bool get _nearOwnVoice {
-    final now = _now();
-    return _sounding ||
-        _spoken.any((s) => s.until == null || s.until!.isAfter(now));
-  }
-
-  void _holdFor(Duration wait) {
-    _holdTimer?.cancel();
-    _holdTimer = Timer(wait, _releaseHeld);
-  }
-
-  /// Says the kept-back sentence as it is.
-  void _releaseHeld() {
-    final held = _held;
-    if (held == null) return;
-    _held = null;
-    _holdTimer?.cancel();
-    if (_ended || isClosed) return;
-    if (_currentId == held.id) {
-      // Whatever the patient says next starts a line of its own.
-      _currentId = null;
-      _lastInterim = '';
-    }
-    _finish(held);
-  }
-
-  void _finish(_LivePlayback phrase) {
-    final started = _startedAt.remove(phrase.id);
-    if (started != null) {
-      _pace?.observe(phrase.text, phrase.lastVoiceAt.difference(started));
-    }
-    _show(phrase.id, LiveSegmentStatus.done, phrase.text);
-    _pending.add(phrase);
+    _show(id, LiveSegmentStatus.done, transcription.finalTranscript);
+    _pending.add(_LivePlayback(id, transcription, lastVoiceAt, finalAt));
     unawaited(_drain());
   }
 
@@ -578,7 +351,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     DateTime? playbackAt;
     final result = await _speak(
       batch.last.id,
-      batch.map((p) => p.text).join(' '),
+      batch.map((p) => p.transcription.finalTranscript).join(' '),
       onStarted: (at) {
         playbackAt = at;
         for (final phrase in batch) {
@@ -644,7 +417,6 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
           entry = (text: text, until: null);
           _spoken.add(entry!);
           emit(state.copyWith(playingId: () => id));
-          _sounding = true;
           onStarted?.call(at);
         },
         onEnded: finishPlayback,
@@ -654,18 +426,12 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     } finally {
       finishPlayback();
       _speechBusy = false;
-      if (_sounding) _mutedUntil = _now().add(muteTail);
-      _sounding = false;
+      _mutedUntil = _now().add(muteTail);
     }
   }
 
   /// Adds the segment on its first news, or updates it.
-  void _show(
-    int id,
-    LiveSegmentStatus status,
-    String text, {
-    int stable = 0,
-  }) {
+  void _show(int id, LiveSegmentStatus status, String text) {
     final visibleText = LivePhrasePolicy.displayText(text);
     if (status != LiveSegmentStatus.interpreting) {
       AppLog.speak('live segment $id ${status.name} "$text"');
@@ -677,11 +443,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
             ? [
                 for (final segment in state.segments)
                   segment.id == id
-                      ? segment.copyWith(
-                          status: status,
-                          text: visibleText,
-                          stable: stable,
-                        )
+                      ? segment.copyWith(status: status, text: visibleText)
                       : segment,
               ]
             : [
@@ -691,7 +453,6 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
                   at: _now(),
                   status: status,
                   text: visibleText,
-                  stable: stable,
                 ),
               ],
       ),
@@ -712,8 +473,6 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     if (_ended) return;
     _ended = true;
     _clock?.cancel();
-    _holdTimer?.cancel();
-    _held = null;
     await _events?.cancel();
     _events = null;
     await _conversation?.close();
@@ -741,38 +500,10 @@ class _LivePlayback {
     this.id,
     this.transcription,
     this.lastVoiceAt,
-    this.finalAt, {
-    this.pieces = 1,
-  });
+    this.finalAt,
+  );
   final int id;
   final Transcription transcription;
   final DateTime lastVoiceAt;
   final DateTime finalAt;
-
-  /// How many recognizer sentences were joined into this one.
-  final int pieces;
-
-  String get text => transcription.finalTranscript;
-
-  /// This sentence followed by [next], kept under this one's line. The
-  /// confidence is weighted by each piece's length.
-  _LivePlayback join(_LivePlayback next) {
-    final a = text.length;
-    final b = next.text.length;
-    final confidence =
-        (transcription.asrConfidence * a +
-            next.transcription.asrConfidence * b) /
-        (a + b == 0 ? 1 : a + b);
-    return _LivePlayback(
-      id,
-      Transcription(
-        traceId: next.transcription.traceId,
-        finalTranscript: '$text ${next.text}',
-        asrConfidence: confidence,
-      ),
-      next.lastVoiceAt,
-      next.finalAt,
-      pieces: pieces + next.pieces,
-    );
-  }
 }

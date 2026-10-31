@@ -19,8 +19,6 @@ public class DuplexAudioPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!
   private var micConverter: AVAudioConverter?
   private var gain: Float = 1
-  /// Level above which the soft limiter starts to act.
-  private static let knee: Float = 0.7
 
   private var playConverters: [String: AVAudioConverter] = [:]
   private var playbackId: Int?
@@ -209,12 +207,9 @@ public class DuplexAudioPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     data.withUnsafeMutableBytes { raw in
       let pcm = raw.bindMemory(to: Int16.self)
       for i in 0..<count {
-        // Speech passes unchanged; only peaks above the knee are rounded
-        // off so the gain does not clip them.
-        let x = samples[i] * gain
-        let a = abs(x)
-        let y = a <= Self.knee ? x : copysign(Self.knee + (1 - Self.knee) * tanhf((a - Self.knee) / (1 - Self.knee)), x)
-        pcm[i] = Int16(y * 32767).littleEndian
+        // tanh is near-linear for speech and rounds off peaks the gain
+        // would otherwise clip.
+        pcm[i] = Int16(tanhf(samples[i] * gain) * 32767).littleEndian
       }
     }
     DispatchQueue.main.async { [weak self] in

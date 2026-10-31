@@ -60,9 +60,6 @@ class _Conversation implements LiveConversation {
 
   /// Audio kept while reconnecting so a sentence in progress survives.
   static const backlogFrames = 30;
-
-  /// Gap between kept frames when sending them after reconnecting.
-  static const catchUpGap = Duration(milliseconds: 50);
   static const _unauthorized = 4001;
 
   final PhraseStreamSource _source;
@@ -90,21 +87,12 @@ class _Conversation implements LiveConversation {
   }
 
   void _frame(Uint8List frame) {
-    if (_open && _backlog.isEmpty) {
+    if (_open) {
       _channel?.sink.add(frame);
       return;
     }
     _backlog.add(frame);
-    if (!_open && _backlog.length > backlogFrames) _backlog.removeAt(0);
-  }
-
-  /// Sends audio kept while reconnecting at twice its real pace, new audio
-  /// queued behind it, so the recognizer does not get seconds at once.
-  Future<void> _catchUp(WebSocketChannel channel) async {
-    while (_open && _channel == channel && _backlog.isNotEmpty) {
-      channel.sink.add(_backlog.removeAt(0));
-      await Future<void>.delayed(catchUpGap);
-    }
+    if (_backlog.length > backlogFrames) _backlog.removeAt(0);
   }
 
   @override
@@ -175,7 +163,9 @@ class _Conversation implements LiveConversation {
       'backlog ${_backlog.length} frames',
     );
     _open = true;
-    unawaited(_catchUp(channel));
+    _backlog
+      ..forEach(channel.sink.add)
+      ..clear();
     try {
       await for (final message in channel.stream) {
         if (message is String) _receive(message);
@@ -240,8 +230,6 @@ class _Conversation implements LiveConversation {
           case 'UNAUTHORIZED':
             _source._expiry.emit();
             _emit(const LiveFailed(UnauthorizedFailure(), recovering: false));
-          case 'ML_UPSTREAM_UNAVAILABLE':
-            _emit(const LiveUpstreamDown());
           default:
             // The connection closes after this and is reopened.
             break;
