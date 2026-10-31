@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:marieum_app/core/audio/speech_segmenter.dart';
@@ -62,24 +61,6 @@ class LiveSessionView extends StatelessWidget {
                         threshold: state.threshold,
                       ),
                       const SizedBox(height: 6),
-                      if (!kReleaseMode)
-                        Row(
-                          children: [
-                            const Expanded(child: Text('개발: 에코 제거')),
-                            Switch.adaptive(
-                              value: state.echoCancel,
-                              onChanged:
-                                  state.status != LiveStatus.listening ||
-                                      state.switchingAudio
-                                  ? null
-                                  : (value) => unawaited(
-                                      context
-                                          .read<LiveSessionCubit>()
-                                          .setEchoCancel(enabled: value),
-                                    ),
-                            ),
-                          ],
-                        ),
                       Text(
                         state.hearing ? '목소리가 들려요' : '말씀하시면 바로 해석해요',
                         textAlign: TextAlign.center,

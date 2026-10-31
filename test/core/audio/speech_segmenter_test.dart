@@ -65,14 +65,6 @@ void main() {
       expect(segmenter.threshold, closeTo(0.22, 1e-9));
     });
 
-    test('resets noise calibration when the audio processing mode changes', () {
-      feed(0.45, 50);
-      expect(segmenter.threshold, 0.6);
-      segmenter.resetNoiseFloor();
-      expect(segmenter.threshold, SpeechSegmenter.defaultThreshold);
-      expect(feed(0.4).single, isA<SegmentStarted>());
-    });
-
     test('reset drops the segment in progress', () {
       feed(0.7, 5);
       segmenter.reset();

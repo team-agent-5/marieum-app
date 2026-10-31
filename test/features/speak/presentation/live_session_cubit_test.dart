@@ -382,18 +382,6 @@ void main() {
       },
     );
     blocTest<LiveSessionCubit, LiveSessionState>(
-      'restarts the microphone with the chosen debug echo cancellation mode',
-      build: build,
-      act: (cubit) async {
-        await cubit.start();
-        await cubit.setEchoCancel(enabled: false);
-        expect(cubit.state.echoCancel, isFalse);
-        expect(cubit.state.switchingAudio, isFalse);
-        verify(() => mic.setEchoCancelForDebug(enabled: false)).called(1);
-        verify(mic.start).called(2);
-      },
-    );
-    blocTest<LiveSessionCubit, LiveSessionState>(
       'stop cancels queued playback and all outstanding socket sessions',
       build: build,
       act: (cubit) async {

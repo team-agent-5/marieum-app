@@ -1,13 +1,11 @@
 import 'dart:async';
-
-import 'package:flutter/foundation.dart';
+import 'dart:typed_data';
 
 import 'package:marieum_app/core/audio/recording_engine.dart';
 import 'package:marieum_app/core/audio/voice_audio_session.dart';
 import 'package:marieum_app/core/error/failure.dart';
 
-/// An open microphone delivering PCM16 16 kHz mono chunks until stopped,
-/// with echo cancellation so the app can speak while it listens.
+/// An open microphone delivering PCM16 16 kHz mono chunks until stopped.
 /// Nothing is kept; listeners decide what to send.
 class MicStream {
   MicStream({
@@ -20,13 +18,6 @@ class MicStream {
   final MicrophonePermission _permission;
   final VoiceAudioSession _audioSession;
   bool _open = false;
-  bool _echoCancel = true;
-  bool get echoCancel => _echoCancel;
-
-  void setEchoCancelForDebug({required bool enabled}) {
-    if (kReleaseMode) return;
-    _echoCancel = enabled;
-  }
 
   Future<Stream<Uint8List>> start() async {
     final access = await _permission.request();
@@ -34,8 +25,7 @@ class MicStream {
       throw PermissionFailure(permanent: access == MicrophoneAccess.permanent);
     }
     await _audioSession.configure();
-    // The app speaks while listening, so its own voice is cancelled out.
-    final stream = await _engine.startStream(echoCancel: _echoCancel);
+    final stream = await _engine.startStream();
     _open = true;
     return stream.map(Uint8List.fromList);
   }

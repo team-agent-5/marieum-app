@@ -25,7 +25,7 @@ void main() {
       ).thenAnswer((_) async => MicrophoneAccess.granted);
       when(session.configure).thenAnswer((_) async {});
       when(
-        () => engine.startStream(echoCancel: any(named: 'echoCancel')),
+        engine.startStream,
       ).thenAnswer((_) async => const Stream.empty());
       when(engine.stop).thenAnswer((_) async {});
       mic = MicStream(
@@ -34,25 +34,11 @@ void main() {
         audioSession: session,
       );
     });
-    test(
-      'enables echo cancellation by default '
-      'and applies the debug comparison setting on restart',
-      () async {
-        await mic.start();
-        verify(() => engine.startStream(echoCancel: true)).called(1);
-        await mic.stop();
-        mic.setEchoCancelForDebug(enabled: false);
-        await mic.start();
-        expect(mic.echoCancel, isFalse);
-        expect(
-          verify(
-            () =>
-                engine.startStream(echoCancel: captureAny(named: 'echoCancel')),
-          ).captured,
-          [false],
-        );
-        await mic.stop();
-      },
-    );
+    test('starts the stream without echo cancellation', () async {
+      await mic.start();
+      verify(engine.startStream).called(1);
+      await mic.stop();
+      verify(engine.stop).called(1);
+    });
   });
 }

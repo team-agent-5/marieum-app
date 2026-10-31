@@ -22,9 +22,7 @@ class PlatformMicrophonePermission implements MicrophonePermission {
 }
 
 abstract interface class RecordingEngine {
-  /// [echoCancel] removes the app's own playback from the input, for
-  /// listening while speaking.
-  Future<Stream<List<int>>> startStream({bool echoCancel = false});
+  Future<Stream<List<int>>> startStream();
   Future<void> stop();
   Future<void> dispose();
 }
@@ -35,20 +33,18 @@ class PlatformRecordingEngine implements RecordingEngine {
   final AudioRecorder _plugin;
 
   @override
-  Future<Stream<List<int>>> startStream({bool echoCancel = false}) =>
-      _plugin.startStream(
-        RecordConfig(
-          encoder: AudioEncoder.pcm16bits,
-          sampleRate: 16000,
-          numChannels: 1,
-          echoCancel: echoCancel,
-          // Tuned for speech recognition: no automatic gain or noise shaping
-          // that would blur weak consonants.
-          androidConfig: const AndroidRecordConfig(
-            audioSource: AndroidAudioSource.voiceRecognition,
-          ),
-        ),
-      );
+  Future<Stream<List<int>>> startStream() => _plugin.startStream(
+    const RecordConfig(
+      encoder: AudioEncoder.pcm16bits,
+      sampleRate: 16000,
+      numChannels: 1,
+      // Tuned for speech recognition: no automatic gain or noise shaping
+      // that would blur weak consonants.
+      androidConfig: AndroidRecordConfig(
+        audioSource: AndroidAudioSource.voiceRecognition,
+      ),
+    ),
+  );
   @override
   Future<void> stop() async {
     await _plugin.stop();

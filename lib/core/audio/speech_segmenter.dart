@@ -131,13 +131,6 @@ class SpeechSegmenter {
     _silenceMs = 0;
   }
 
-  void resetNoiseFloor() {
-    reset();
-    _recent.clear();
-    _recentMs = 0;
-    _threshold = defaultThreshold;
-  }
-
   /// Tracks the noise floor as a low percentile of recent input: speech
   /// always has gaps, so the quiet end of the window is the room itself.
   void _listen(double level, int ms) {

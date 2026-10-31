@@ -1,7 +1,7 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:equatable/equatable.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:marieum_app/core/audio/mic_stream.dart';
 import 'package:marieum_app/core/audio/recorder.dart';
@@ -59,8 +59,6 @@ class LiveSessionState extends Equatable {
     this.elapsed = Duration.zero,
     this.segments = const [],
     this.failure,
-    this.echoCancel = true,
-    this.switchingAudio = false,
   });
 
   final LiveStatus status;
@@ -79,8 +77,6 @@ class LiveSessionState extends Equatable {
   final Duration elapsed;
   final List<LiveSegment> segments;
   final Failure? failure;
-  final bool echoCancel;
-  final bool switchingAudio;
 
   bool get playing => playingId != null;
 
@@ -93,8 +89,6 @@ class LiveSessionState extends Equatable {
     Duration? elapsed,
     List<LiveSegment>? segments,
     Failure? failure,
-    bool? echoCancel,
-    bool? switchingAudio,
   }) => LiveSessionState(
     status: status ?? this.status,
     levels: levels ?? this.levels,
@@ -104,8 +98,6 @@ class LiveSessionState extends Equatable {
     elapsed: elapsed ?? this.elapsed,
     segments: segments ?? this.segments,
     failure: failure ?? this.failure,
-    echoCancel: echoCancel ?? this.echoCancel,
-    switchingAudio: switchingAudio ?? this.switchingAudio,
   );
 
   @override
@@ -118,8 +110,6 @@ class LiveSessionState extends Equatable {
     elapsed,
     segments,
     failure,
-    echoCancel,
-    switchingAudio,
   ];
 }
 
@@ -220,8 +210,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     switch (signal) {
       case SegmentStarted(:final audio):
         AppLog.speak(
-          'live input_level=$level threshold=${_segmenter.threshold} '
-          'echo_cancel=${state.echoCancel}',
+          'live input_level=$level threshold=${_segmenter.threshold}',
         );
         _capturing = true;
         _begin(audio);
@@ -450,45 +439,6 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     } finally {
       finishPlayback();
       _speechBusy = false;
-    }
-  }
-
-  Future<void> setEchoCancel({required bool enabled}) async {
-    if (kReleaseMode ||
-        _ended ||
-        isClosed ||
-        state.switchingAudio ||
-        state.echoCancel == enabled) {
-      return;
-    }
-    emit(state.copyWith(switchingAudio: true));
-    _capturing = false;
-    _drop();
-    await _input?.cancel();
-    _input = null;
-    try {
-      await _mic.stop();
-      if (_ended || isClosed) return;
-      _mic.setEchoCancelForDebug(enabled: enabled);
-      _segmenter.resetNoiseFloor();
-      final stream = await _mic.start();
-      if (_ended || isClosed) {
-        await _mic.stop();
-        return;
-      }
-      _input = stream.listen(_onChunk);
-      emit(state.copyWith(echoCancel: enabled, switchingAudio: false));
-      AppLog.speak('live microphone echo_cancel=$enabled restarted');
-    } on Object {
-      if (!_ended && !isClosed) {
-        emit(
-          state.copyWith(
-            status: LiveStatus.failed,
-            switchingAudio: false,
-            failure: const RecordingFailure('마이크를 다시 열지 못했어요.'),
-          ),
-        );
-      }
     }
   }
 
