@@ -19,11 +19,34 @@ class HistoryRepositoryImpl implements HistoryRepository {
     };
   }
 
+  /// The server currently answers 500 to any `since` value, so pages are
+  /// requested without it and trimmed here. Paging stops at the first entry
+  /// older than [since] because results come newest first.
   @override
   Future<Result<HistoryPageData>> page({
     required String since,
     String? cursor,
-  }) => _source.page(since: since, cursor: cursor);
+  }) async {
+    final start = DateTime.parse(since);
+    final result = await _source.page(since: null, cursor: cursor);
+    if (result case FailureResult(:final failure)) {
+      return FailureResult(failure);
+    }
+    final data = (result as Success<HistoryPageData>).value;
+    final kept = [
+      for (final entry in data.entries)
+        if (!entry.createdAt.isBefore(start)) entry,
+    ];
+    final reachedStart = kept.length < data.entries.length;
+    return Success(
+      HistoryPageData(
+        entries: List.unmodifiable(kept),
+        total: reachedStart ? kept.length : data.total,
+        nextCursor: reachedStart ? null : data.nextCursor,
+      ),
+    );
+  }
+
   @override
   Future<Result<List<HistoryEntry>>> all({required String since}) async {
     final entries = <String, HistoryEntry>{};

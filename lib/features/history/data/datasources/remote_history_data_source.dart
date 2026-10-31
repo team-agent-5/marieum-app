@@ -13,11 +13,7 @@ class RemoteHistoryDataSource implements HistoryDataSource {
     String? cursor,
   }) => _client.request(
     '/phrase/history',
-    query: {
-      'limit': 20,
-      'since': ?since,
-      'cursor': cursor ?? '',
-    },
+    query: {'limit': 20, 'since': ?since, 'cursor': ?cursor},
     decode: decodeHistoryPage,
   );
 }
