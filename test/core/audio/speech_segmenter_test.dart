@@ -27,17 +27,17 @@ void main() {
       expect(voice.first.audio.length, 3200 * 7);
       expect(voice.skip(1), everyElement(isA<SegmentContinued>()));
       expect(segmenter.hearing, isTrue);
-      final pause = feed(0.1, 10);
+      final pause = feed(0.1, 13);
       expect(pause.last, isA<SegmentEnded>());
       expect((pause.last as SegmentEnded).kept, isTrue);
-      // 600 ms lead-in + 600 ms voice + 1 s pause.
-      expect(bytes([...voice, ...pause]), 3200 * 22);
+      // 600 ms lead-in + 600 ms voice + 1.3 s pause.
+      expect(bytes([...voice, ...pause]), 3200 * 25);
       expect(segmenter.hearing, isFalse);
     });
 
     test('marks a click shorter than the minimum speech as not kept', () {
       feed(0.6, 2);
-      final ended = feed(0.1, 10).last as SegmentEnded;
+      final ended = feed(0.1, 13).last as SegmentEnded;
       expect(ended.kept, isFalse);
     });
 
@@ -75,6 +75,14 @@ void main() {
         ..reset()
         ..playbackFloor = null;
       expect(segmenter.threshold, closeTo(0.25, 1e-9));
+    });
+
+    test('keeps a segment under way going when the app starts speaking', () {
+      feed(0.02, 20);
+      expect(feed(0.4).single, isA<SegmentStarted>());
+      segmenter.playbackFloor = 0.6;
+      final signals = feed(0.4, 15);
+      expect(signals, everyElement(isA<SegmentContinued>()));
     });
 
     test('reset drops the segment in progress', () {

@@ -37,7 +37,7 @@ class SpeechSegmenter {
     this.maxThreshold = 0.6,
     this.noiseWindow = const Duration(seconds: 5),
     this.minSpeech = const Duration(milliseconds: 300),
-    this.endSilence = const Duration(milliseconds: 1000),
+    this.endSilence = const Duration(milliseconds: 1300),
     this.maxSegment = const Duration(seconds: 8),
     this.preRoll = const Duration(milliseconds: 600),
   });
@@ -93,10 +93,10 @@ class SpeechSegmenter {
   SegmentSignal? add(Uint8List chunk, {double? level}) {
     final value = level ?? pcmLevel(chunk);
     final chunkMs = chunk.length ~/ _bytesPerMs;
-    final loud = value >= threshold;
     _listen(value, chunkMs);
     if (!_inSegment) {
-      if (!loud) {
+      // While the app speaks only a voice above its own starts a segment.
+      if (value < threshold) {
         _keepBefore(chunk);
         return null;
       }
@@ -113,7 +113,9 @@ class SpeechSegmenter {
       return SegmentStarted(audio.takeBytes());
     }
     _lengthMs += chunkMs;
-    if (loud) {
+    // A segment already under way keeps the room threshold, so the patient
+    // is not cut off when the app starts speaking.
+    if (value >= _threshold) {
       _speechMs += chunkMs;
       _silenceMs = 0;
     } else {
