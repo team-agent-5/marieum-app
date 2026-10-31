@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:marieum_app/features/auth/domain/entities/auth_status.dart';
 import 'package:marieum_app/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:marieum_app/features/auth/presentation/pages/account_page.dart';
-import 'package:marieum_app/features/privacy/presentation/privacy_page.dart';
+import 'package:marieum_app/features/privacy/presentation/pages/privacy_page.dart';
 import 'package:mocktail/mocktail.dart';
 import '../../helpers/pump_app.dart';
 

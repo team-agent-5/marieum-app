@@ -5,7 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:marieum_app/core/theme/app_theme.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
 import 'package:marieum_app/core/ui/key_text.dart';
-import 'package:marieum_app/features/settings/presentation/settings_cubit.dart';
+import 'package:marieum_app/features/settings/presentation/cubit/settings_cubit.dart';
 
 class MarieumApp extends StatelessWidget {
   const MarieumApp({required this.router, super.key});

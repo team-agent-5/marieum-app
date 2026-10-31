@@ -6,7 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:marieum_app/app/router/app_routes.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
 import 'package:marieum_app/features/auth/presentation/bloc/auth_bloc.dart';
-import 'package:marieum_app/features/history/presentation/recent_requests.dart';
+import 'package:marieum_app/features/history/presentation/widgets/recent_requests_section.dart';
 
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
