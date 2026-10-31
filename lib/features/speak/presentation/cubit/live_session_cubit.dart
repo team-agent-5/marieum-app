@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:marieum_app/core/audio/live_sound.dart';
 import 'package:marieum_app/core/audio/mic_stream.dart';
 import 'package:marieum_app/core/audio/recorder.dart';
 import 'package:marieum_app/core/audio/speech_segmenter.dart';
@@ -125,8 +126,10 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     required this._tts,
     this.muteWhileSpeaking = false,
     SpeechSegmenter? segmenter,
+    LiveSound? sound,
     DateTime Function()? now,
   }) : _levels = segmenter ?? SpeechSegmenter(),
+       _sound = sound ?? LiveSound(),
        _now = now ?? DateTime.now,
        super(const LiveSessionState());
 
@@ -154,6 +157,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   final bool muteWhileSpeaking;
 
   final MicStream _mic;
+  final LiveSound _sound;
   final LiveStream _stream;
   final UtteranceRepository _repository;
   final PlaybackTtsPort _tts;
@@ -240,7 +244,9 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     final muted =
         muteWhileSpeaking &&
         (_speechBusy || (mutedUntil != null && _now().isBefore(mutedUntil)));
-    _conversation?.add(muted ? Uint8List(chunk.length) : chunk);
+    _conversation?.add(
+      muted ? quietNoise(chunk.length) : _sound.process(chunk),
+    );
     emit(
       state.copyWith(
         levels: levels,
