@@ -6,7 +6,7 @@ void main() {
   group(TtsMapping, () {
     for (final entry in {
       VoicePlatform.ios: [0.38, 0.5, 0.6],
-      VoicePlatform.android: [0.7, 1.0, 1.3],
+      VoicePlatform.android: [0.35, 0.5, 0.65],
     }.entries) {
       for (final rate in TtsRate.values) {
         test('maps ${entry.key} $rate to the approved engine rate', () {

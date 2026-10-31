@@ -27,6 +27,29 @@ void main() {
       expect(config.echoCancel, isFalse);
       expect(config.autoGain, isFalse);
       expect(config.noiseSuppress, isFalse);
+      expect(
+        config.androidConfig.audioSource,
+        AndroidAudioSource.voiceRecognition,
+      );
+    });
+
+    test('cancels echo on the communication source when asked', () async {
+      final plugin = _MockPlugin();
+      when(
+        () => plugin.startStream(any()),
+      ).thenAnswer((_) async => const Stream<Uint8List>.empty());
+      await PlatformRecordingEngine(
+        plugin: plugin,
+      ).startStream(echoCancel: true);
+      final config =
+          verify(() => plugin.startStream(captureAny())).captured.single
+              as RecordConfig;
+      expect(config.echoCancel, isTrue);
+      expect(config.autoGain, isFalse);
+      expect(
+        config.androidConfig.audioSource,
+        AndroidAudioSource.voiceCommunication,
+      );
     });
   });
 }
