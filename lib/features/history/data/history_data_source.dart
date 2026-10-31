@@ -5,7 +5,10 @@ import 'package:marieum_app/features/history/domain/history.dart';
 // 원격 구현과 모의 구현을 같은 인터페이스로 교체한다.
 // ignore: one_member_abstracts
 abstract interface class HistoryDataSource {
-  Future<Result<HistoryPageData>> page({required String since, String? cursor});
+  Future<Result<HistoryPageData>> page({
+    required String? since,
+    String? cursor,
+  });
 }
 
 class RemoteHistoryDataSource implements HistoryDataSource {
@@ -13,11 +16,15 @@ class RemoteHistoryDataSource implements HistoryDataSource {
   final ApiClient _client;
   @override
   Future<Result<HistoryPageData>> page({
-    required String since,
+    required String? since,
     String? cursor,
   }) => _client.request(
     '/phrase/history',
-    query: {'limit': 20, 'since': since, 'cursor': cursor ?? ''},
+    query: {
+      'limit': 20,
+      'since': ?since,
+      'cursor': cursor ?? '',
+    },
     decode: decodeHistoryPage,
   );
 }
@@ -56,7 +63,7 @@ class MockHistoryDataSource implements HistoryDataSource {
   final _records = <String, List<HistoryEntry>>{};
   @override
   Future<Result<HistoryPageData>> page({
-    required String since,
+    required String? since,
     String? cursor,
   }) async {
     final user = userId();
@@ -76,7 +83,9 @@ class MockHistoryDataSource implements HistoryDataSource {
             ),
     );
     final filtered = records
-        .where((e) => !e.createdAt.isBefore(DateTime.parse(since)))
+        .where(
+          (e) => since == null || !e.createdAt.isBefore(DateTime.parse(since)),
+        )
         .toList();
     final start = int.tryParse(cursor ?? '') ?? 0;
     final entries = filtered.skip(start).take(20).toList(growable: false);

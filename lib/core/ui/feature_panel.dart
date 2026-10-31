@@ -18,7 +18,13 @@ class FeaturePanel extends StatelessWidget {
 }
 
 class FeaturePage extends StatelessWidget {
-  const FeaturePage({required this.title, required this.child, super.key});
+  const FeaturePage({
+    required this.title,
+    required this.child,
+    this.onBack,
+    super.key,
+  });
+  final VoidCallback? onBack;
   final String title;
   final Widget child;
   @override
@@ -28,13 +34,15 @@ class FeaturePage extends StatelessWidget {
       leading: IconButton(
         tooltip: '뒤로',
         icon: const Icon(Icons.arrow_back_rounded),
-        onPressed: () {
-          if (context.canPop()) {
-            context.pop();
-          } else {
-            context.go('/speak');
-          }
-        },
+        onPressed:
+            onBack ??
+            () {
+              if (context.canPop()) {
+                context.pop();
+              } else {
+                context.go('/speak');
+              }
+            },
       ),
     ),
     body: SafeArea(top: false, child: child),

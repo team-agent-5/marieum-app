@@ -26,6 +26,7 @@ import 'package:marieum_app/features/history/data/history_data_source.dart';
 import 'package:marieum_app/features/history/data/history_repository_impl.dart';
 import 'package:marieum_app/features/history/domain/history.dart';
 import 'package:marieum_app/features/history/presentation/history_cubit.dart';
+import 'package:marieum_app/features/insight/presentation/insight_cubit.dart';
 import 'package:marieum_app/features/quick_phrase/data/datasources/preset_data_source.dart';
 import 'package:marieum_app/features/quick_phrase/data/datasources/quick_phrase_local_store.dart';
 import 'package:marieum_app/features/quick_phrase/data/repositories/quick_phrase_repository_impl.dart';
@@ -140,6 +141,8 @@ Future<GetIt> configureDependencies({
         refresh: dependencies<AuthRouterRefresh>(),
         createQuickPhraseBloc: dependencies.call<QuickPhraseBloc>,
         createHistoryCubit: dependencies.call<HistoryCubit>,
+        createInsightCubit: dependencies.call<InsightCubit>,
+        readLoginUserId: () => prefs.readString(PrefsKeys.loginUserId) ?? '',
         createPlaybackCubit: (request) => PlaybackCubit(
           request: request,
           tts: dependencies<TtsPort>(),
@@ -188,6 +191,9 @@ Future<GetIt> configureDependencies({
     )
     ..registerLazySingleton<HistoryRepository>(
       () => HistoryRepositoryImpl(dependencies<HistoryDataSource>()),
+    )
+    ..registerFactory<InsightCubit>(
+      () => InsightCubit(dependencies<HistoryRepository>()),
     )
     ..registerFactory<HistoryCubit>(
       () => HistoryCubit(dependencies<HistoryRepository>()),

@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:marieum_app/app/marieum_app.dart';
 import 'package:marieum_app/core/di/dependencies.dart';
 import 'package:marieum_app/features/auth/presentation/bloc/auth_bloc.dart';
+import 'package:marieum_app/features/history/domain/history.dart';
 import 'package:marieum_app/features/settings/presentation/settings_cubit.dart';
 import 'package:marieum_app/features/speak/presentation/cubit/speak_mode_cubit.dart';
 
@@ -24,8 +25,11 @@ Future<void> bootstrap() async {
         BlocProvider.value(value: dependencies<SpeakModeCubit>()),
         BlocProvider.value(value: dependencies<SettingsCubit>()),
       ],
-      child: MarieumApp(
-        router: dependencies<GoRouter>(),
+      child: RepositoryProvider<HistoryRepository>.value(
+        value: dependencies<HistoryRepository>(),
+        child: MarieumApp(
+          router: dependencies<GoRouter>(),
+        ),
       ),
     ),
   );

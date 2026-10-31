@@ -32,6 +32,7 @@ class HistoryPageData {
 }
 
 abstract interface class HistoryRepository {
+  Future<Result<List<HistoryEntry>>> recent();
   Future<Result<HistoryPageData>> page({required String since, String? cursor});
   Future<Result<List<HistoryEntry>>> all({required String since});
 }

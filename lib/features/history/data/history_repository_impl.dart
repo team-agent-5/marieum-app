@@ -7,6 +7,17 @@ class HistoryRepositoryImpl implements HistoryRepository {
   HistoryRepositoryImpl(this._source);
   final HistoryDataSource _source;
   @override
+  Future<Result<List<HistoryEntry>>> recent() async {
+    final result = await _source.page(since: null);
+    return switch (result) {
+      Success(:final value) => Success(
+        List.unmodifiable(value.entries.take(3)),
+      ),
+      FailureResult(:final failure) => FailureResult(failure),
+    };
+  }
+
+  @override
   Future<Result<HistoryPageData>> page({
     required String since,
     String? cursor,

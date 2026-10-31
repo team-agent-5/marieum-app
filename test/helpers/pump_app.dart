@@ -10,7 +10,10 @@ import 'package:marieum_app/features/auth/domain/entities/auth_status.dart';
 import 'package:marieum_app/features/auth/domain/entities/patient_profile.dart';
 import 'package:marieum_app/features/auth/domain/repositories/auth_repository.dart';
 import 'package:marieum_app/features/auth/presentation/bloc/auth_bloc.dart';
+import 'package:marieum_app/features/history/domain/history.dart';
 import 'package:marieum_app/features/history/presentation/history_cubit.dart';
+import 'package:marieum_app/features/insight/domain/insight_summary.dart';
+import 'package:marieum_app/features/insight/presentation/insight_cubit.dart';
 import 'package:marieum_app/features/quick_phrase/domain/entities/quick_phrase.dart';
 import 'package:marieum_app/features/quick_phrase/presentation/bloc/quick_phrase_bloc.dart';
 import 'package:marieum_app/features/settings/domain/app_settings.dart';
@@ -45,6 +48,11 @@ class _MockHistoryCubit extends MockCubit<HistoryState>
 class _MockSettingsCubit extends MockCubit<SettingsState>
     implements SettingsCubit {}
 
+class _MockHistoryRepository extends Mock implements HistoryRepository {}
+
+class _MockInsightCubit extends MockCubit<InsightState>
+    implements InsightCubit {}
+
 const testProfile = PatientProfile(
   id: '1',
   nickname: '김환자',
@@ -62,6 +70,9 @@ extension PumpApp on WidgetTester {
     SpeakModeCubit? modeCubit,
     SettingsCubit? settingsCubit,
     HistoryCubit Function()? createHistoryCubit,
+    InsightCubit Function()? createInsightCubit,
+    HistoryRepository? historyRepository,
+    String loginUserId = 'demo_a',
     QuickPhraseBloc Function()? createQuickPhraseBloc,
     PlaybackCubit Function(PlaybackRequest)? createPlaybackCubit,
     UtteranceBloc Function()? createUtteranceBloc,
@@ -94,6 +105,13 @@ extension PumpApp on WidgetTester {
       when(() => settings.state).thenReturn(const SettingsState(AppSettings()));
       when(() => settings.stream).thenAnswer((_) => const Stream.empty());
     }
+    final historyRepositoryValue =
+        historyRepository ?? _MockHistoryRepository();
+    if (historyRepository == null) {
+      when(
+        historyRepositoryValue.recent,
+      ).thenAnswer((_) async => const Success([]));
+    }
     final refresh = AuthRouterRefresh(bloc);
     addTearDown(refresh.dispose);
     final router = createAppRouter(
@@ -101,6 +119,22 @@ extension PumpApp on WidgetTester {
       authBloc: bloc,
       repository: authRepository,
       refresh: refresh,
+      readLoginUserId: () => loginUserId,
+      createInsightCubit:
+          createInsightCubit ??
+          () {
+            final insight = _MockInsightCubit();
+            when(() => insight.state).thenReturn(
+              InsightState(
+                status: InsightStatus.success,
+                summary: InsightSummary.fromEntries(const []),
+              ),
+            );
+            when(() => insight.stream).thenAnswer((_) => const Stream.empty());
+            when(insight.load).thenAnswer((_) async {});
+            when(insight.close).thenAnswer((_) async {});
+            return insight;
+          },
       createHistoryCubit:
           createHistoryCubit ??
           () {
@@ -155,8 +189,11 @@ extension PumpApp on WidgetTester {
           BlocProvider.value(value: mode),
           BlocProvider.value(value: settings),
         ],
-        child: MarieumApp(
-          router: router,
+        child: RepositoryProvider<HistoryRepository>.value(
+          value: historyRepositoryValue,
+          child: MarieumApp(
+            router: router,
+          ),
         ),
       ),
     );

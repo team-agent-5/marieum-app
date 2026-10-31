@@ -48,6 +48,24 @@ void main() {
               as FailureResult<List<HistoryEntry>>;
       expect(result.failure, isA<ProtocolFailure>());
     });
+    test('takes only the latest three records without a time filter', () async {
+      final entries = List.generate(
+        4,
+        (i) => HistoryEntry(
+          logId: '$i',
+          text: '문장 $i',
+          source: 'preset',
+          createdAt: DateTime(2026),
+        ),
+      );
+      when(() => source.page(since: null)).thenAnswer(
+        (_) async => Success(HistoryPageData(entries: entries, total: 4)),
+      );
+      final result =
+          await HistoryRepositoryImpl(source).recent()
+              as Success<List<HistoryEntry>>;
+      expect(result.value, entries.take(3).toList());
+    });
     test('propagates page failures', () async {
       when(
         () => source.page(since: 'since'),

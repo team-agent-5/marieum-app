@@ -9,13 +9,18 @@ import 'package:marieum_app/core/ui/placeholder_page.dart';
 import 'package:marieum_app/features/auth/domain/entities/auth_status.dart';
 import 'package:marieum_app/features/auth/domain/repositories/auth_repository.dart';
 import 'package:marieum_app/features/auth/presentation/bloc/auth_bloc.dart';
+import 'package:marieum_app/features/auth/presentation/pages/account_page.dart';
 import 'package:marieum_app/features/auth/presentation/pages/login_page.dart';
 import 'package:marieum_app/features/auth/presentation/pages/onboarding_page.dart';
 import 'package:marieum_app/features/auth/presentation/pages/signup_page.dart';
 import 'package:marieum_app/features/auth/presentation/pages/splash_page.dart';
 import 'package:marieum_app/features/history/presentation/history_cubit.dart';
 import 'package:marieum_app/features/history/presentation/history_page.dart';
+import 'package:marieum_app/features/insight/presentation/insight_cubit.dart';
+import 'package:marieum_app/features/insight/presentation/insight_page.dart';
+import 'package:marieum_app/features/privacy/presentation/privacy_page.dart';
 import 'package:marieum_app/features/quick_phrase/presentation/bloc/quick_phrase_bloc.dart';
+import 'package:marieum_app/features/quick_phrase/presentation/pages/quick_phrase_management_page.dart';
 import 'package:marieum_app/features/settings/presentation/settings_page.dart';
 import 'package:marieum_app/features/speak/domain/entities/playback_request.dart';
 import 'package:marieum_app/features/speak/presentation/bloc/utterance_bloc.dart';
@@ -31,6 +36,8 @@ GoRouter createAppRouter({
   required PlaybackCubit Function(PlaybackRequest) createPlaybackCubit,
   required UtteranceBloc Function() createUtteranceBloc,
   required HistoryCubit Function() createHistoryCubit,
+  required InsightCubit Function() createInsightCubit,
+  required String Function() readLoginUserId,
   String initialLocation = AppRoutes.splash,
 }) {
   final rootKey = GlobalKey<NavigatorState>();
@@ -133,7 +140,14 @@ GoRouter createAppRouter({
             GoRoute(
               path: entry.key,
               parentNavigatorKey: authenticatedKey,
-              builder: (context, state) => PlaceholderPage(title: entry.value),
+              builder: (context, state) => switch (entry.key) {
+                AppRoutes.quickPhrases => const QuickPhraseManagementPage(),
+                AppRoutes.insight => InsightPage(
+                  createCubit: createInsightCubit,
+                ),
+                AppRoutes.account => AccountPage(userId: readLoginUserId()),
+                _ => const PrivacyPage(),
+              },
             ),
         ],
       ),
