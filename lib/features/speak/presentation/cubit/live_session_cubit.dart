@@ -192,8 +192,9 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   /// The lowest level that counts as voice, about -40 dBFS.
   static const _voiceFloor = 0.2;
 
-  /// Sends silence instead of the microphone while the app's voice plays.
-  /// Android cannot cancel the app's own media playback from the input, so
+  /// Sends near silence instead of the microphone while the app's voice
+  /// plays. Android cannot cancel the app's own playback from the input,
+  /// and what iOS echo cancellation leaves still reached the recognizer, so
   /// without this the server hears the app and the sentence is spoken over
   /// and over.
   final bool muteWhileSpeaking;
