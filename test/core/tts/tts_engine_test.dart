@@ -259,9 +259,28 @@ void main() {
         quality: TtsVoiceQuality.enhanced,
         requiresNetwork: false,
       );
-      test('passes only the requested name and locale to the plugin', () async {
+      test('passes name, locale and the platform identifier', () async {
         when(() => plugin.setVoice(any())).thenAnswer((_) async => 1);
         await engine.setVoice(voice);
+        verify(
+          () => plugin.setVoice({
+            'name': '목소리',
+            'locale': 'ko-KR',
+            'identifier': 'id',
+          }),
+        ).called(1);
+      });
+      test('omits the identifier when it is only the name', () async {
+        when(() => plugin.setVoice(any())).thenAnswer((_) async => 1);
+        await engine.setVoice(
+          const TtsVoice(
+            id: '목소리',
+            name: '목소리',
+            locale: 'ko-KR',
+            quality: TtsVoiceQuality.high,
+            requiresNetwork: false,
+          ),
+        );
         verify(
           () => plugin.setVoice({'name': '목소리', 'locale': 'ko-KR'}),
         ).called(1);

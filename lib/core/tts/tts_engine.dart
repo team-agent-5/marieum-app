@@ -118,6 +118,9 @@ class FlutterTtsEngine implements TtsEngine {
     final Object? result = await _plugin.setVoice({
       'name': voice.name,
       'locale': voice.locale,
+      // iOS picks the exact voice by identifier; same-name voices differ in
+      // quality, so name and locale alone are ambiguous.
+      if (voice.id != voice.name) 'identifier': voice.id,
     });
     if (result != 1) throw const TtsFailure('목소리를 설정하지 못했습니다.');
   }
