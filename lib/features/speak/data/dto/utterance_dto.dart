@@ -5,7 +5,7 @@ abstract final class UtteranceDto {
     final body = _map(json);
     return Transcription(
       traceId: _string(body['trace_id']),
-      finalTranscript: (body['final_transcript'] as String?) ?? '',
+      finalTranscript: _clean(body['final_transcript'] as String? ?? ''),
       asrConfidence: _number(body['asr_confidence']),
       heardText: _nonBlank(body['heard_text']),
     );
@@ -138,8 +138,16 @@ abstract final class UtteranceDto {
     _ => 0,
   };
 
-  static String? _nonBlank(Object? value) =>
-      value is String && value.trim().isNotEmpty ? value : null;
+  static String? _nonBlank(Object? value) {
+    if (value is! String) return null;
+    final text = _clean(value);
+    return text.isEmpty ? null : text;
+  }
+
+  /// The recognizer sometimes splits a Hangul syllable and the server sends
+  /// the broken half as U+FFFD; it is dropped rather than shown or read.
+  static String _clean(String text) =>
+      text.replaceAll('\uFFFD', '').replaceAll(RegExp(r'\s{2,}'), ' ').trim();
 
   static String _requiredText(Object? value) =>
       _nonBlank(value) ?? (throw const FormatException('Missing text.'));

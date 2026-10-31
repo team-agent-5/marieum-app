@@ -18,6 +18,7 @@ abstract final class AppLog {
         '${now.minute.toString().padLeft(2, '0')}:'
         '${now.second.toString().padLeft(2, '0')}.'
         '${now.millisecond.toString().padLeft(3, '0')}';
-    debugPrint('[$time][$tag] $message');
+    // A broken character in the output made `flutter run` drop the log.
+    debugPrint('[$time][$tag] ${message.replaceAll('\uFFFD', '?')}');
   }
 }
