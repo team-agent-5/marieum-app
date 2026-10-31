@@ -135,6 +135,18 @@ void main() {
       segmenter: segmenter,
       now: () => now,
     );
+
+    /// Starts the cubit and lets the microphone warm up.
+    Future<void> listen(LiveSessionCubit cubit) async {
+      await cubit.start();
+      now = now.add(LiveSessionCubit.warmUp);
+      when(
+        () => segmenter.add(any(), level: any(named: 'level')),
+      ).thenReturn(null);
+      input.add(Uint8List(3200));
+      await pumpEventQueue();
+    }
+
     Future<void> signal(SegmentSignal next) async {
       now = now.add(const Duration(milliseconds: 100));
       when(
@@ -180,7 +192,7 @@ void main() {
     test("listens past the app's own voice while it speaks", () async {
       final cubit = build();
       addTearDown(cubit.close);
-      await cubit.start();
+      await listen(cubit);
       await phrase('물 좀 주세요');
       // Until the app's loudness is known, nothing counts as voice.
       verify(() => segmenter.playbackFloor = 1).called(1);
@@ -212,7 +224,7 @@ void main() {
       'shows interim immediately and speaks a completed final before logging',
       build: build,
       act: (cubit) async {
-        await cubit.start();
+        await listen(cubit);
         await signal(SegmentStarted(Uint8List(3200)));
         stream.opened.single.controller.add(const LiveInterim('물 좀'));
         await pumpEventQueue();
@@ -234,17 +246,35 @@ void main() {
       },
     );
     blocTest<LiveSessionCubit, LiveSessionState>(
-      'opens a replacement on early final '
-      'and forwards subsequent PCM',
+      'holds an early server final and speaks the whole sentence once',
       build: build,
       act: (cubit) async {
-        await cubit.start();
+        await listen(cubit);
         await phrase('책상', end: false);
         expect(stream.opened, hasLength(2));
         expect(stream.opened.last.audio, isEmpty);
+        expect(cubit.state.segments.single.text, '책상');
+        expect(
+          cubit.state.segments.single.status,
+          LiveSegmentStatus.interpreting,
+        );
+        verifyNoSpeech();
+
         await signal(SegmentContinued(Uint8List.fromList([1, 2, 3, 4])));
         expect(stream.opened.last.audio, [1, 2, 3, 4]);
-        verifySpeech('책상');
+        await signal(SegmentEnded(Uint8List(0), kept: true));
+        stream.opened.last.finish(
+          const LiveFinal(
+            Transcription(
+              traceId: 't2',
+              finalTranscript: '위에 놔 주세요',
+              asrConfidence: 0.9,
+            ),
+          ),
+        );
+        await pumpEventQueue();
+        expect(cubit.state.segments.single.text, '책상 위에 놔 주세요');
+        verifySpeech('책상 위에 놔 주세요');
       },
     );
     blocTest<LiveSessionCubit, LiveSessionState>(
@@ -252,7 +282,7 @@ void main() {
       'without waiting for a sentence ending',
       build: build,
       act: (cubit) async {
-        await cubit.start();
+        await listen(cubit);
         await phrase('책상');
         expect(cubit.state.segments.single.text, '책상');
         verifySpeech('책상');
@@ -266,7 +296,7 @@ void main() {
         when(
           () => repository.bypass(any(), latency: any(named: 'latency')),
         ).thenAnswer((_) => http.future);
-        await cubit.start();
+        await listen(cubit);
         await phrase('첫 문장');
         await phrase('다음 문장');
         verifySpeech('첫 문장');
@@ -290,7 +320,7 @@ void main() {
       build: build,
       act: (cubit) async {
         startImmediately = false;
-        await cubit.start();
+        await listen(cubit);
         await phrase('물 좀 주세요');
         expect(cubit.state.playing, isFalse);
         await signal(SegmentStarted(Uint8List(3200)));
@@ -317,7 +347,7 @@ void main() {
       'filters only similar sentences during playback and its one second tail',
       build: build,
       act: (cubit) async {
-        await cubit.start();
+        await listen(cubit);
         await phrase('물 좀 주세요');
         await phrase('물 좀 주세요.');
         expect(cubit.state.segments, hasLength(1));
@@ -335,7 +365,7 @@ void main() {
       'keeps short real utterances instead of deleting them as substrings',
       build: build,
       act: (cubit) async {
-        await cubit.start();
+        await listen(cubit);
         await phrase('물 좀 주세요');
         await signal(SegmentStarted(Uint8List(3200)));
         stream.opened.last.controller.add(const LiveInterim('물'));
@@ -350,7 +380,7 @@ void main() {
       'hides replacement characters and never plays a corrupted final',
       build: build,
       act: (cubit) async {
-        await cubit.start();
+        await listen(cubit);
         await signal(SegmentStarted(Uint8List(3200)));
         stream.opened.last.controller.add(const LiveInterim('물� 주세요'));
         await pumpEventQueue();
@@ -379,7 +409,7 @@ void main() {
       'does not speak or log a low confidence result',
       build: build,
       act: (cubit) async {
-        await cubit.start();
+        await listen(cubit);
         await signal(SegmentStarted(Uint8List(3200)));
         await signal(SegmentEnded(Uint8List(3200), kept: true));
         stream.opened.last.finish(const LiveUnclear());
@@ -392,7 +422,7 @@ void main() {
       'does not play or log a final below the confidence threshold',
       build: build,
       act: (cubit) async {
-        await cubit.start();
+        await listen(cubit);
         await signal(SegmentStarted(Uint8List(3200)));
         await signal(SegmentEnded(Uint8List(3200), kept: true));
         stream.opened.last.finish(
@@ -416,7 +446,7 @@ void main() {
       'stop cancels queued playback and all outstanding socket sessions',
       build: build,
       act: (cubit) async {
-        await cubit.start();
+        await listen(cubit);
         await phrase('책상');
         await phrase('다음 문장');
         await signal(SegmentStarted(Uint8List(3200)));
