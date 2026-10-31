@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
+import 'package:marieum_app/core/ui/key_text.dart';
 import 'package:marieum_app/features/quick_phrase/domain/entities/quick_phrase.dart';
 import 'package:marieum_app/features/quick_phrase/presentation/bloc/quick_phrase_bloc.dart';
 import 'package:marieum_app/features/speak/domain/entities/utterance.dart';
@@ -108,7 +109,7 @@ class _Candidates extends StatelessWidget {
             key: const ValueKey('utterance_confirm'),
             onPressed: () => bloc.add(const UtteranceConfirmPressed()),
             icon: const Icon(Icons.volume_up_rounded),
-            label: const Text('이 말로 말하기'),
+            label: const KeyText('이 말로 말하기'),
           ),
           const SizedBox(height: 9),
         ],
@@ -188,7 +189,7 @@ class _CandidateTile extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
+                        KeyText(
                           candidate.text,
                           style: const TextStyle(
                             fontSize: 18,
@@ -306,7 +307,7 @@ class _Reask extends StatelessWidget {
         onPressed: () =>
             context.read<UtteranceBloc>().add(const UtteranceRetryPressed()),
         icon: const Icon(Icons.mic_rounded),
-        label: const Text('다시 말하기'),
+        label: const KeyText('다시 말하기'),
       ),
       const SizedBox(height: 9),
       _SecondaryButton(
@@ -387,7 +388,7 @@ class _Speaking extends StatelessWidget {
             borderRadius: BorderRadius.circular(20),
             border: Border.all(color: AppTokens.primary, width: 2),
           ),
-          child: Text(
+          child: KeyText(
             text,
             textAlign: TextAlign.center,
             style: const TextStyle(
@@ -539,7 +540,7 @@ class _QuickOptions extends StatelessWidget {
                   child: Row(
                     children: [
                       Expanded(
-                        child: Text(
+                        child: KeyText(
                           phrase.text,
                           style: const TextStyle(
                             fontSize: 16,
@@ -594,7 +595,7 @@ class _SecondaryButton extends StatelessWidget {
   Widget build(BuildContext context) => OutlinedButton.icon(
     onPressed: onPressed,
     icon: Icon(icon),
-    label: Text(label),
+    label: KeyText(label),
     style: OutlinedButton.styleFrom(
       minimumSize: const Size.fromHeight(AppTokens.buttonHeight),
       foregroundColor: AppTokens.onTonal,

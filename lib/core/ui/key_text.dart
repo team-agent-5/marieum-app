@@ -1,15 +1,24 @@
 import 'package:flutter/material.dart';
 
 class KeyText extends StatelessWidget {
-  const KeyText(this.text, {this.style, this.textAlign, super.key});
+  const KeyText(
+    this.text, {
+    this.style,
+    this.textAlign,
+    this.maxLines,
+    super.key,
+  });
   final String text;
   final TextStyle? style;
   final TextAlign? textAlign;
+  final int? maxLines;
   @override
   Widget build(BuildContext context) => Text(
     text,
     style: style,
     textAlign: textAlign,
+    maxLines: maxLines,
+    overflow: maxLines == null ? null : TextOverflow.ellipsis,
     textScaler: KeyTextScaler(
       MediaQuery.textScalerOf(context),
       LargeTextScope.enabledOf(context) ? 1.25 : 1,

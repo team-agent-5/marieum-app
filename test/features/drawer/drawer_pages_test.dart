@@ -84,7 +84,7 @@ void main() {
         250,
         scrollable: find
             .descendant(
-              of: find.byType(Drawer),
+              of: find.byKey(const ValueKey('app_drawer_scroll')),
               matching: find.byType(Scrollable),
             )
             .first,
