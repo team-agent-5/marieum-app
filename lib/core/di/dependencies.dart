@@ -192,7 +192,7 @@ Future<GetIt> configureDependencies({
         stream: dependencies<LiveStream>(),
         repository: dependencies<UtteranceRepository>(),
         tts: dependencies<PlaybackTtsPort>(),
-        muteWhileSpeaking: defaultTargetPlatform == TargetPlatform.android,
+        muteWhileSpeaking: true,
         // iOS already raises the level by a fixed gain after its processing.
         sound: LiveSound(
           level: defaultTargetPlatform == TargetPlatform.android,

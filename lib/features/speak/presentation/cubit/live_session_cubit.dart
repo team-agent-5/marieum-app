@@ -150,10 +150,10 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   /// How long after the app's voice ends its echo is still kept out.
   static const muteTail = Duration(milliseconds: 600);
 
-  /// Sends silence instead of the microphone while the app speaks. Android
-  /// cannot cancel the app's own media playback from the input, so without
-  /// this the server hears the app and the sentence is spoken again and
-  /// again.
+  /// Sends near silence instead of the microphone while the app speaks.
+  /// Android cannot cancel the app's own media playback from the input, and
+  /// what iOS echo cancellation leaves still reached the recognizer as
+  /// stray syllables.
   final bool muteWhileSpeaking;
 
   final MicStream _mic;
@@ -181,6 +181,10 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
 
   /// The sentence the server is reading now, shown as it changes.
   int? _currentId;
+
+  /// The latest reading of the sentence in progress, kept in case the
+  /// final comes back looping.
+  String? _lastInterim;
   DateTime? _lastVoiceAt;
 
   /// Whether a connection problem is already on screen.
@@ -262,16 +266,20 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
       case LiveInterim(:final text):
         if (_isEcho(text)) return;
         final id = _currentId ??= _nextId++;
+        _lastInterim = text;
         _clearFailure();
         _show(id, LiveSegmentStatus.interpreting, text);
       case LiveFinal(:final transcription):
         final id = _currentId ?? _nextId++;
         _currentId = null;
+        final interim = _lastInterim;
+        _lastInterim = null;
         _clearFailure();
-        _settle(id, transcription);
+        _settle(id, _unlooped(id, transcription, interim));
       case LiveUnclear():
         final id = _currentId;
         _currentId = null;
+        _lastInterim = null;
         // Silence the server closed off is not worth a line.
         if (id != null) _show(id, LiveSegmentStatus.unclear, '');
       case LiveFailed(:final failure, :final recovering):
@@ -283,11 +291,31 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
         _showingFailure = true;
         final id = _currentId ?? _nextId++;
         _currentId = null;
+        _lastInterim = null;
         _show(id, LiveSegmentStatus.failed, failure.message);
     }
   }
 
   void _clearFailure() => _showingFailure = false;
+
+  /// The recognizer decodes the final again and sometimes loops on a
+  /// phrase its interim readings never repeated; the last of those is
+  /// then the better sentence.
+  Transcription _unlooped(int id, Transcription final_, String? interim) {
+    if (interim == null ||
+        !LivePhrasePolicy.repeats(final_.finalTranscript) ||
+        LivePhrasePolicy.repeats(interim) ||
+        LivePhrasePolicy.isFragment(interim)) {
+      return final_;
+    }
+    AppLog.speak('live segment $id final looped, last interim used');
+    return Transcription(
+      traceId: final_.traceId,
+      finalTranscript: interim,
+      asrConfidence: final_.asrConfidence,
+      heardText: interim,
+    );
+  }
 
   void _settle(int id, Transcription transcription) {
     final finalAt = _now();
