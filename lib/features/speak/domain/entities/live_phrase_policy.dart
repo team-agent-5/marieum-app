@@ -5,6 +5,14 @@ abstract final class LivePhrasePolicy {
   static String _normalize(String text) =>
       text.replaceAll(RegExp(r'[\s\p{P}]', unicode: true), '');
 
+  /// A phrase of four or more letters said again right after itself, as
+  /// in "나연이는 사다릅니다 나연이는 사다릅니다".
+  static bool repeats(String text) =>
+      RegExp(r'(.{4,})\1').hasMatch(_normalize(text));
+
+  /// Too short to stand for a sentence.
+  static bool isFragment(String text) => _normalize(text).runes.length <= 2;
+
   static bool isEcho(String spoken, String heard) {
     final a = _normalize(spoken).runes.toList();
     final b = _normalize(heard).runes.toList();
