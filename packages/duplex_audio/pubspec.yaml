@@ -1,0 +1,18 @@
+name: duplex_audio
+description: Records and plays through one iOS audio engine so echo cancellation knows what the app plays.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+  flutter: ">=3.44.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      ios:
+        pluginClass: DuplexAudioPlugin

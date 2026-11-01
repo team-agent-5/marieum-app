@@ -1,0 +1,836 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:marieum_app/core/error/failure.dart';
+import 'package:marieum_app/core/theme/tokens.dart';
+import 'package:marieum_app/core/ui/key_text.dart';
+import 'package:marieum_app/features/quick_phrase/domain/entities/quick_phrase.dart';
+import 'package:marieum_app/features/quick_phrase/presentation/bloc/quick_phrase_bloc.dart';
+import 'package:marieum_app/features/speak/domain/entities/utterance.dart';
+import 'package:marieum_app/features/speak/presentation/bloc/utterance_bloc.dart';
+import 'package:permission_handler/permission_handler.dart';
+
+/// Bottom sheet content for candidates, re-ask, no-match and failure.
+/// Popping with a [QuickPhrase] asks the caller to play that phrase.
+class UtteranceSheet extends StatelessWidget {
+  const UtteranceSheet({super.key});
+
+  @override
+  Widget build(BuildContext context) =>
+      BlocBuilder<UtteranceBloc, UtteranceState>(
+        buildWhen: (previous, current) => current.phase.usesSheet,
+        builder: (context, state) => SafeArea(
+          top: false,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * 0.9,
+            ),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const _Handle(),
+                  const SizedBox(height: 18),
+                  switch (state.phase) {
+                    UtterancePhase.suggesting => _Candidates(state: state),
+                    UtterancePhase.reask when state.reaskExhausted =>
+                      _ReaskExhausted(message: state.retryMessage),
+                    UtterancePhase.reask => _Reask(state: state),
+                    UtterancePhase.failed => _Failed(failure: state.notice),
+                    _ => _NoMatch(state: state),
+                  },
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+}
+
+class _Handle extends StatelessWidget {
+  const _Handle();
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Container(
+      width: 40,
+      height: 5,
+      decoration: BoxDecoration(
+        color: AppTokens.lineStrong,
+        borderRadius: BorderRadius.circular(3),
+      ),
+    ),
+  );
+}
+
+class _Candidates extends StatelessWidget {
+  const _Candidates({required this.state});
+  final UtteranceState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final bloc = context.read<UtteranceBloc>();
+    final candidates = state.suggestions?.candidates ?? const <Candidate>[];
+    final selected = state.selected;
+    if (state.suggestions?.mode == SuggestionMode.single) {
+      return _SingleCandidate(state: state);
+    }
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 7,
+              height: 7,
+              decoration: const BoxDecoration(
+                color: AppTokens.primary,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 7),
+            Expanded(
+              child: Text(
+                '들린 내용: "${state.transcription?.finalTranscript ?? ''}"',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF4A5878),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Semantics(
+          header: true,
+          child: const Text(
+            '이렇게 말씀하시려는 거예요?',
+            style: TextStyle(
+              fontSize: 20,
+              height: 1.35,
+              fontWeight: FontWeight.w800,
+              color: AppTokens.ink,
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        for (final candidate in candidates) ...[
+          _CandidateTile(
+            candidate: candidate,
+            selected: candidate == selected,
+            onTap: () => bloc.add(UtteranceCandidateTapped(candidate)),
+          ),
+          const SizedBox(height: 9),
+        ],
+        const SizedBox(height: 4),
+        _SecondaryButton(
+          key: const ValueKey('utterance_retry'),
+          icon: Icons.mic_none_rounded,
+          label: '다시 말하기',
+          onPressed: () => bloc.add(const UtteranceRetryPressed()),
+        ),
+      ],
+    );
+  }
+}
+
+class _SingleCandidate extends StatelessWidget {
+  const _SingleCandidate({required this.state});
+  final UtteranceState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final candidates = state.suggestions!.candidates;
+    final candidate = candidates.first;
+    final heard = candidates.length > 1 ? candidates[1] : null;
+    final reason = reasonText(candidate);
+    void speak() =>
+        context.read<UtteranceBloc>().add(UtteranceCandidateTapped(candidate));
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Semantics(
+          header: true,
+          child: const Text(
+            '이렇게 말씀드릴게요',
+            style: TextStyle(
+              fontSize: 20,
+              height: 1.35,
+              fontWeight: FontWeight.w800,
+              color: AppTokens.ink,
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        const Text('맞으면 아래 버튼을 눌러 주세요.', style: AppTokens.copy),
+        const SizedBox(height: 16),
+        Semantics(
+          button: true,
+          label: '${candidate.text}${reason == null ? '' : ', $reason'}, 말하기',
+          excludeSemantics: true,
+          child: Material(
+            color: AppTokens.surfaceBlue,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+              side: const BorderSide(color: AppTokens.primarySoft, width: 1.5),
+            ),
+            child: InkWell(
+              key: ValueKey('candidate_${candidate.rank}'),
+              borderRadius: BorderRadius.circular(20),
+              onTap: speak,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    KeyText(
+                      candidate.text,
+                      style: const TextStyle(
+                        fontSize: 40,
+                        height: 1.25,
+                        fontWeight: FontWeight.w800,
+                        color: AppTokens.ink,
+                      ),
+                    ),
+                    if (reason != null) ...[
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.auto_awesome_outlined,
+                            size: 15,
+                            color: AppTokens.onTonal,
+                          ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              reason,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: AppTokens.onTonal,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 18),
+        FilledButton.icon(
+          key: const ValueKey('utterance_speak'),
+          onPressed: speak,
+          icon: const Icon(Icons.volume_up_rounded),
+          label: const KeyText('이 말로 말하기'),
+          style: FilledButton.styleFrom(
+            minimumSize: const Size.fromHeight(58),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppTokens.buttonRadius),
+            ),
+            textStyle: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        if (heard != null) ...[
+          const SizedBox(height: 12),
+          _HeardOption(
+            candidate: heard,
+            onPressed: () => context.read<UtteranceBloc>().add(
+              UtteranceCandidateTapped(heard),
+            ),
+          ),
+        ],
+        const SizedBox(height: 10),
+        _SecondaryButton(
+          key: const ValueKey('utterance_retry'),
+          icon: Icons.mic_none_rounded,
+          label: '다시 말하기',
+          onPressed: () =>
+              context.read<UtteranceBloc>().add(const UtteranceRetryPressed()),
+        ),
+      ],
+    );
+  }
+}
+
+/// The sentence as heard, offered when the suggestion differs from it.
+class _HeardOption extends StatelessWidget {
+  const _HeardOption({required this.candidate, required this.onPressed});
+  final Candidate candidate;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: '들린 말 ${candidate.text}, 이 말로 말하기',
+    excludeSemantics: true,
+    child: Material(
+      color: AppTokens.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: AppTokens.line, width: 1.5),
+      ),
+      child: InkWell(
+        key: const ValueKey('utterance_heard'),
+        borderRadius: BorderRadius.circular(16),
+        onTap: onPressed,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '들린 말',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppTokens.ink2,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    KeyText(
+                      candidate.text,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        height: 1.3,
+                        fontWeight: FontWeight.w800,
+                        color: AppTokens.ink,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Text(
+                '이 말로 말하기',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: AppTokens.primaryStrong,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _CandidateTile extends StatelessWidget {
+  const _CandidateTile({
+    required this.candidate,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final Candidate candidate;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final reason = reasonText(candidate);
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: [
+        '${candidate.rank}번',
+        candidate.text,
+        ?reason,
+        if (selected) '선택됨',
+      ].join(', '),
+      excludeSemantics: true,
+      child: Material(
+        color: selected ? AppTokens.surfaceBlue : AppTokens.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(17),
+          side: BorderSide(
+            color: selected ? AppTokens.primary : AppTokens.line,
+            width: selected ? 2 : 1.5,
+          ),
+        ),
+        child: InkWell(
+          key: ValueKey('candidate_${candidate.rank}'),
+          borderRadius: BorderRadius.circular(17),
+          onTap: onTap,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 78),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    alignment: Alignment.center,
+                    decoration: const BoxDecoration(
+                      color: AppTokens.primarySoft,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Text(
+                      '${candidate.rank}',
+                      style: const TextStyle(
+                        fontSize: 19,
+                        fontWeight: FontWeight.w900,
+                        color: AppTokens.onTonal,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        KeyText(
+                          candidate.text,
+                          style: const TextStyle(
+                            fontSize: 48,
+                            height: 1.2,
+                            fontWeight: FontWeight.w800,
+                            color: AppTokens.ink,
+                          ),
+                        ),
+                        if (reason != null) ...[
+                          const SizedBox(height: 7),
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.auto_awesome_outlined,
+                                size: 14,
+                                color: AppTokens.ink2,
+                              ),
+                              const SizedBox(width: 5),
+                              Flexible(
+                                child: Text(
+                                  reason,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppTokens.ink2,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 9),
+                  Icon(
+                    selected
+                        ? Icons.check_circle_rounded
+                        : Icons.volume_up_rounded,
+                    size: 24,
+                    color: selected ? AppTokens.primary : AppTokens.lineStrong,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Server-provided Korean label first; local wording only as a fallback.
+String? reasonText(Candidate candidate) =>
+    candidate.reasonDisplay ??
+    switch (candidate.reasonLabel) {
+      'verbatim' => '방금 들린 그대로',
+      'registered_preference' => '등록한 선호',
+      'time_context' => '이 시간대에 자주 선택',
+      'recency' => '최근 요청',
+      'patient_frequency' => '자주 쓰는 말',
+      'sequence_context' => '다음에 자주 하는 말',
+      'semantic_similarity' => '비슷한 말투',
+      _ => null,
+    };
+
+class _Reask extends StatelessWidget {
+  const _Reask({required this.state});
+  final UtteranceState state;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      _AttemptBars(count: state.reaskCount),
+      _Recovery(
+        icon: Icons.refresh_rounded,
+        kicker: '소리가 조금 흐렸어요',
+        title: state.retryMessage ?? '한 번만 다시 말씀해 주세요',
+        body: '편한 속도로, 휴대폰을 입 가까이 대고 말씀해 주세요.',
+      ),
+      if ((state.transcription?.heard ?? '').trim().isNotEmpty)
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: AppTokens.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppTokens.line),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '이렇게 들렸어요',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: AppTokens.ink3,
+                ),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                state.transcription?.heard ?? '',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: AppTokens.ink,
+                ),
+              ),
+            ],
+          ),
+        ),
+      const SizedBox(height: 14),
+      FilledButton.icon(
+        key: const ValueKey('reask_retry'),
+        onPressed: () =>
+            context.read<UtteranceBloc>().add(const UtteranceRetryPressed()),
+        icon: const Icon(Icons.mic_rounded),
+        label: const KeyText('다시 말하기'),
+      ),
+      const SizedBox(height: 9),
+      _SecondaryButton(
+        icon: Icons.grid_view_rounded,
+        label: '빠른 문장에서 선택',
+        onPressed: () => Navigator.of(context).pop(),
+      ),
+    ],
+  );
+}
+
+class _Failed extends StatelessWidget {
+  const _Failed({required this.failure});
+  final Failure? failure;
+
+  @override
+  Widget build(BuildContext context) {
+    final failure = this.failure;
+    final settings = failure is PermissionFailure && failure.permanent;
+    final (icon, title) = switch (failure) {
+      PermissionFailure() => (Icons.mic_off_rounded, '마이크를 쓸 수 없어요'),
+      NetworkFailure() ||
+      TimeoutFailure() => (Icons.wifi_off_rounded, '서버에 연결하지 못했어요'),
+      TtsFailure() ||
+      TtsUnavailableFailure() => (Icons.volume_off_rounded, '소리를 재생하지 못했어요'),
+      _ => (Icons.error_outline_rounded, '말씀을 전달하지 못했어요'),
+    };
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _Recovery(
+          icon: icon,
+          kicker: '문제가 생겼어요',
+          title: title,
+          body: failure?.message ?? '잠시 뒤 다시 시도해 주세요.',
+          danger: true,
+        ),
+        const SizedBox(height: 6),
+        if (settings)
+          FilledButton.icon(
+            key: const ValueKey('failed_settings'),
+            onPressed: () => unawaited(openAppSettings()),
+            icon: const Icon(Icons.settings_rounded),
+            label: const KeyText('설정 열기'),
+          )
+        else
+          FilledButton.icon(
+            key: const ValueKey('failed_retry'),
+            onPressed: () => context.read<UtteranceBloc>().add(
+              const UtteranceRetryPressed(),
+            ),
+            icon: const Icon(Icons.mic_rounded),
+            label: const KeyText('다시 말하기'),
+          ),
+        const SizedBox(height: 9),
+        _SecondaryButton(
+          icon: Icons.close_rounded,
+          label: '닫기',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ],
+    );
+  }
+}
+
+class _ReaskExhausted extends StatelessWidget {
+  const _ReaskExhausted({this.message});
+  final String? message;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      if (message != null) Text(message!, style: AppTokens.copy),
+      const _AttemptBars(count: UtteranceBloc.maxReask),
+      const _Recovery(
+        icon: Icons.list_alt_rounded,
+        kicker: '다른 방법을 써볼게요',
+        title: '원하는 문장을 골라 주세요',
+        body: '자주 사용하는 문장을 바로 재생할 수 있어요.',
+      ),
+      const _QuickOptions(moreLabel: '빠른 문장 더 보기'),
+    ],
+  );
+}
+
+class _NoMatch extends StatelessWidget {
+  const _NoMatch({required this.state});
+  final UtteranceState state;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      const _Recovery(
+        icon: Icons.list_alt_rounded,
+        kicker: '알맞은 문장을 찾지 못했어요',
+        title: '원하시는 말이 아래에 있나요?',
+        body: '빠른 문장에서 골라 주세요.',
+      ),
+      const _QuickOptions(moreLabel: '빠른 문장 더 보기'),
+      const SizedBox(height: 9),
+      _SecondaryButton(
+        icon: Icons.mic_none_rounded,
+        label: '다시 말하기',
+        onPressed: () =>
+            context.read<UtteranceBloc>().add(const UtteranceRetryPressed()),
+      ),
+    ],
+  );
+}
+
+class _Recovery extends StatelessWidget {
+  const _Recovery({
+    required this.icon,
+    required this.kicker,
+    required this.title,
+    required this.body,
+    this.danger = false,
+  });
+
+  final IconData icon;
+  final String kicker;
+  final String title;
+  final String body;
+  final bool danger;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(8, 14, 8, 14),
+    child: Column(
+      children: [
+        Container(
+          width: 62,
+          height: 62,
+          decoration: BoxDecoration(
+            color: danger ? AppTokens.dangerSoft : AppTokens.primarySoft,
+            borderRadius: BorderRadius.circular(21),
+          ),
+          child: Icon(
+            icon,
+            size: 30,
+            color: danger ? AppTokens.danger : AppTokens.primaryStrong,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          kicker,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+            color: danger ? AppTokens.danger : AppTokens.primaryStrong,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Semantics(
+          header: true,
+          child: Text(
+            title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 24,
+              height: 1.3,
+              letterSpacing: -.72,
+              fontWeight: FontWeight.w800,
+              color: AppTokens.ink,
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(body, textAlign: TextAlign.center, style: AppTokens.copy),
+      ],
+    ),
+  );
+}
+
+class _AttemptBars extends StatelessWidget {
+  const _AttemptBars({required this.count});
+  final int count;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    label: '다시 듣기 $count / ${UtteranceBloc.maxReask}회',
+    excludeSemantics: true,
+    child: Row(
+      children: [
+        for (var i = 0; i < UtteranceBloc.maxReask; i++) ...[
+          if (i > 0) const SizedBox(width: 6),
+          Expanded(
+            child: Container(
+              height: 4,
+              decoration: BoxDecoration(
+                color: i < count ? AppTokens.primary : AppTokens.line,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+        ],
+      ],
+    ),
+  );
+}
+
+class _QuickOptions extends StatefulWidget {
+  const _QuickOptions({required this.moreLabel});
+  final String moreLabel;
+
+  @override
+  State<_QuickOptions> createState() => _QuickOptionsState();
+}
+
+/// Shows three quick phrases, and all of them in place once "more" is
+/// pressed, so the patient can pick one without leaving the sheet.
+class _QuickOptionsState extends State<_QuickOptions> {
+  static const _preview = 3;
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final all = context.select<QuickPhraseBloc, List<QuickPhrase>>(
+      (bloc) => bloc.state.phrases,
+    );
+    final phrases = _expanded ? all : all.take(_preview).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final phrase in phrases) ...[
+          Material(
+            color: AppTokens.surface,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(15),
+              side: const BorderSide(color: AppTokens.line),
+            ),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(15),
+              onTap: () => Navigator.of(context).pop(phrase),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 52),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: KeyText(
+                          phrase.text,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: AppTokens.ink,
+                          ),
+                        ),
+                      ),
+                      const Icon(
+                        Icons.volume_up_rounded,
+                        size: 20,
+                        color: AppTokens.primaryStrong,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+        if (all.length > _preview)
+          TextButton(
+            onPressed: () => setState(() => _expanded = !_expanded),
+            style: TextButton.styleFrom(
+              minimumSize: const Size.fromHeight(50),
+              foregroundColor: AppTokens.primaryStrong,
+              textStyle: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            child: Text(_expanded ? '접기' : widget.moreLabel),
+          ),
+      ],
+    );
+  }
+}
+
+class _SecondaryButton extends StatelessWidget {
+  const _SecondaryButton({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    super.key,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => OutlinedButton.icon(
+    onPressed: onPressed,
+    icon: Icon(icon),
+    label: KeyText(label),
+    style: OutlinedButton.styleFrom(
+      minimumSize: const Size.fromHeight(AppTokens.buttonHeight),
+      foregroundColor: AppTokens.onTonal,
+      side: const BorderSide(color: AppTokens.lineStrong),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppTokens.buttonRadius),
+      ),
+      textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+    ),
+  );
+}

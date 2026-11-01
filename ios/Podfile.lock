@@ -1,0 +1,73 @@
+PODS:
+  - audio_session (0.0.1):
+    - Flutter
+  - duplex_audio (0.1.0):
+    - Flutter
+  - Flutter (1.0.0)
+  - flutter_secure_storage_darwin (10.0.0):
+    - Flutter
+    - FlutterMacOS
+  - flutter_tts (0.0.1):
+    - Flutter
+  - just_audio (0.0.1):
+    - Flutter
+    - FlutterMacOS
+  - permission_handler_apple (9.4.8):
+    - Flutter
+  - record_ios (2.0.0):
+    - Flutter
+  - share_plus (0.0.1):
+    - Flutter
+  - shared_preferences_foundation (0.0.1):
+    - Flutter
+    - FlutterMacOS
+
+DEPENDENCIES:
+  - audio_session (from `.symlinks/plugins/audio_session/ios`)
+  - duplex_audio (from `.symlinks/plugins/duplex_audio/ios`)
+  - Flutter (from `Flutter`)
+  - flutter_secure_storage_darwin (from `.symlinks/plugins/flutter_secure_storage_darwin/darwin`)
+  - flutter_tts (from `.symlinks/plugins/flutter_tts/ios`)
+  - just_audio (from `.symlinks/plugins/just_audio/darwin`)
+  - permission_handler_apple (from `.symlinks/plugins/permission_handler_apple/ios`)
+  - record_ios (from `.symlinks/plugins/record_ios/ios`)
+  - share_plus (from `.symlinks/plugins/share_plus/ios`)
+  - shared_preferences_foundation (from `.symlinks/plugins/shared_preferences_foundation/darwin`)
+
+EXTERNAL SOURCES:
+  audio_session:
+    :path: ".symlinks/plugins/audio_session/ios"
+  duplex_audio:
+    :path: ".symlinks/plugins/duplex_audio/ios"
+  Flutter:
+    :path: Flutter
+  flutter_secure_storage_darwin:
+    :path: ".symlinks/plugins/flutter_secure_storage_darwin/darwin"
+  flutter_tts:
+    :path: ".symlinks/plugins/flutter_tts/ios"
+  just_audio:
+    :path: ".symlinks/plugins/just_audio/darwin"
+  permission_handler_apple:
+    :path: ".symlinks/plugins/permission_handler_apple/ios"
+  record_ios:
+    :path: ".symlinks/plugins/record_ios/ios"
+  share_plus:
+    :path: ".symlinks/plugins/share_plus/ios"
+  shared_preferences_foundation:
+    :path: ".symlinks/plugins/shared_preferences_foundation/darwin"
+
+SPEC CHECKSUMS:
+  audio_session: 9bb7f6c970f21241b19f5a3658097ae459681ba0
+  duplex_audio: 67dc62ac42be2bdffa42eb80b55cead155dbccc7
+  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  flutter_secure_storage_darwin: 46e401699982ee74142909676535e0f6a7321e58
+  flutter_tts: 35ac3c7d42412733e795ea96ad2d7e05d0a75113
+  just_audio: 4e391f57b79cad2b0674030a00453ca5ce817eed
+  permission_handler_apple: 92d754bbaa7361d436db2d6c3c1c2a0fdcec462e
+  record_ios: 390a30c7caaf8b5d0fb1cb1d2fd5064b48b4520c
+  share_plus: eccd7beb7cea61271aeed1800e8ccb2b952c0c7f
+  shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
+
+PODFILE CHECKSUM: ce713e7611490505a327a0099f6b1898bad28dc9
+
+COCOAPODS: 1.17.0
