@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:marieum_app/core/audio/live_audio_dump.dart';
 import 'package:marieum_app/core/audio/live_sound.dart';
 import 'package:marieum_app/core/audio/mic_stream.dart';
 import 'package:marieum_app/core/audio/recorder.dart';
@@ -134,9 +135,9 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     required this._stream,
     required this._repository,
     required this._tts,
-    this.muteWhileSpeaking = false,
     SpeechSegmenter? segmenter,
     LiveSound? sound,
+    this._dump,
     DateTime Function()? now,
   }) : _levels = segmenter ?? SpeechSegmenter(),
        _sound = sound ?? LiveSound(),
@@ -157,9 +158,15 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   /// recognizer starting over on its end.
   static const leftoverWindow = Duration(seconds: 5);
 
-  /// How long after the app's voice ends silence still goes out instead of
-  /// the microphone, while the sound and the audio buffers die down.
-  static const muteTail = Duration(milliseconds: 500);
+  /// Zeroed PCM goes out instead of the microphone while the app speaks,
+  /// and after it until the input is back to the room's level, no sooner
+  /// than [muteTail] and no later than [maxMuteTail]: Android cannot cancel
+  /// the app's own playback from the input, and loud sound came in right
+  /// after it ended while the recording was being restored. The microphone
+  /// itself stays open, as restarting it at every sentence cost most of a
+  /// second and recreated Android's audio effects each time.
+  static const muteTail = Duration(milliseconds: 300);
+  static const maxMuteTail = Duration(milliseconds: 1500);
 
   /// How long after the last sentence's final further finals are taken
   /// while finishing; the server does not say which final is the last.
@@ -175,16 +182,11 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   /// How long the sentence under way is awaited after the patient stops.
   static const finishWait = Duration(milliseconds: 2500);
 
-  /// Sends zeroed PCM instead of the microphone while the app speaks and
-  /// for [muteTail] after. Android cannot cancel the app's own media
-  /// playback from the input, and what iOS echo cancellation leaves still
-  /// reached the recognizer as stray syllables. The microphone itself stays
-  /// open: restarting it at every sentence cost most of a second and
-  /// recreated Android's audio effects each time.
-  final bool muteWhileSpeaking;
-
   final MicStream _mic;
   final LiveSound _sound;
+
+  /// Keeps the session's audio for listening back, when turned on.
+  final LiveAudioDump? _dump;
   final LiveStream _stream;
   final UtteranceRepository _repository;
   final PlaybackTtsPort _tts;
@@ -205,9 +207,12 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   bool _speechBusy = false;
   DateTime? _warmUntil;
 
-  /// Whether silence goes out instead of the microphone.
+  /// Whether silence goes out instead of the microphone, and once the app
+  /// has stopped speaking, from when and until when the input may come
+  /// back.
   bool _muted = false;
-  Timer? _unmute;
+  DateTime? _quietFrom;
+  DateTime? _unmuteBy;
 
   /// While finishing, completes once the last sentence is in.
   Completer<void>? _lastSentence;
@@ -300,7 +305,10 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     if (_muted) {
       // Zeroed PCM, as the recognizer's team asks, at the microphone's own
       // pace; the app's voice is kept out of the room level and the gain.
-      _conversation?.add(Uint8List(chunk.length));
+      final silence = Uint8List(chunk.length);
+      _conversation?.add(silence);
+      _dump?.add(chunk, silence);
+      _unmuteOnceQuiet(level);
       emit(
         state.copyWith(
           levels: [...levels.take(levels.length - 1), 0],
@@ -313,6 +321,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     if (_levels.hearing) _voiceAt = _now();
     final sent = _sound.process(chunk);
     _conversation?.add(sent);
+    _dump?.add(chunk, sent);
     _logLevel(chunk, sent);
     final readAt = _readAt;
     emit(
@@ -430,12 +439,16 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     final finalAt = _now();
     final voiceAt = _voiceAt;
     final readAt = _readAt;
-    // The microphone can miss a quiet voice the server still reads, so the
-    // later of the two is taken as where the patient stopped.
-    final lastVoiceAt =
-        voiceAt != null && (readAt == null || voiceAt.isAfter(readAt))
-        ? voiceAt
-        : readAt ?? finalAt;
+    _readAt = null;
+    // Latency is measured from the server's last reading of the sentence,
+    // which every sentence with an interim has; the microphone misses quiet
+    // voices. Without a reading it falls back to the microphone.
+    final basis = readAt != null
+        ? 'reading'
+        : voiceAt != null
+        ? 'mic'
+        : 'final';
+    final lastVoiceAt = readAt ?? voiceAt ?? finalAt;
     final confidence = transcription.asrConfidence.toStringAsFixed(4);
     String since(DateTime? at) =>
         at == null ? '-' : '${finalAt.difference(at).inMilliseconds}';
@@ -443,7 +456,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
       'live segment $id conf=$confidence '
       'final=${finalAt.toIso8601String()} '
       'from_mic_voice_ms=${since(voiceAt)} '
-      'from_last_reading_ms=${since(readAt)}',
+      'from_last_reading_ms=${since(readAt)} latency_basis=$basis',
     );
     if (_isEcho(transcription.finalTranscript)) {
       AppLog.speak("live segment $id conf=$confidence was the app's own voice");
@@ -591,30 +604,38 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     } finally {
       finishPlayback();
       _speechBusy = false;
-      _unmuteSoon();
+      final now = _now();
+      _quietFrom = now.add(muteTail);
+      _unmuteBy = now.add(maxMuteTail);
     }
   }
 
   /// Sends silence instead of the microphone from before the app speaks,
   /// so neither its voice nor words said over it reach the recognizer.
   void _mute() {
-    _unmute?.cancel();
-    _unmute = null;
-    if (!muteWhileSpeaking || _muted || _ended || isClosed) return;
+    _quietFrom = _unmuteBy = null;
+    if (_muted || _ended || isClosed) return;
     _muted = true;
     emit(state.copyWith(micPaused: true, hearing: false));
   }
 
-  void _unmuteSoon() {
-    if (!_muted || _ended || isClosed) return;
-    _unmute?.cancel();
-    _unmute = Timer(muteTail, () {
-      _unmute = null;
-      if (_speechBusy || _lastSentence != null || _ended || isClosed) return;
-      _muted = false;
-      AppLog.speak('live microphone back');
-      emit(state.copyWith(micPaused: false));
-    });
+  /// Lets the microphone through again once the app's voice has died down
+  /// to the room's level, or at the latest by [maxMuteTail].
+  void _unmuteOnceQuiet(double level) {
+    final quietFrom = _quietFrom;
+    final unmuteBy = _unmuteBy;
+    if (quietFrom == null || unmuteBy == null || _lastSentence != null) return;
+    final now = _now();
+    if (now.isBefore(quietFrom)) return;
+    final quiet = level < _levels.threshold;
+    if (!quiet && now.isBefore(unmuteBy)) return;
+    _muted = false;
+    _quietFrom = _unmuteBy = null;
+    final at = _dump == null ? '' : ' at ${_dump.seconds.toStringAsFixed(1)}s';
+    AppLog.speak(
+      'live microphone back${quiet ? '' : ' while still loud'}$at',
+    );
+    emit(state.copyWith(micPaused: false));
   }
 
   /// Adds the segment on its first news, or updates it.
@@ -629,9 +650,10 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
         segments: known
             ? [
                 for (final segment in state.segments)
-                  segment.id == id
-                      ? segment.copyWith(status: status, text: visibleText)
-                      : segment,
+                  if (segment.id == id)
+                    segment.copyWith(status: status, text: visibleText)
+                  else
+                    segment,
               ]
             : [
                 ...state.segments,
@@ -669,8 +691,8 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     final last = _lastSentence = Completer<void>();
     AppLog.speak('live finishing, last sentence awaited');
     emit(state.copyWith(status: LiveStatus.finishing));
-    _unmute?.cancel();
     _muted = true;
+    _quietFrom = _unmuteBy = null;
     conversation.end();
     var finalCame = false;
     await last.future
@@ -708,7 +730,6 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     if (_ended) return;
     _ended = true;
     _lastSentenceIn();
-    _unmute?.cancel();
     _clock?.cancel();
     await _events?.cancel();
     _events = null;
@@ -722,6 +743,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     if (!isClosed) {
       emit(state.copyWith(status: LiveStatus.closed, playingId: () => null));
     }
+    await _dump?.save();
   }
 
   @override

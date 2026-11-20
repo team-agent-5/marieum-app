@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:marieum_app/core/audio/live_audio_dump.dart';
 import 'package:marieum_app/core/audio/mic_stream.dart';
 import 'package:marieum_app/core/error/failure.dart';
 import 'package:marieum_app/core/error/result.dart';
@@ -44,6 +46,9 @@ class _FakeStream implements LiveStream {
   }
 }
 
+/// 100 ms loud enough to count as a voice.
+final _voice = Uint8List.fromList(List.generate(3200, (i) => i % 256));
+
 Transcription _heard(String text, double confidence) => Transcription(
   traceId: 'trace',
   finalTranscript: text,
@@ -64,6 +69,8 @@ void main() {
     late List<StreamController<Uint8List>> inputs;
     late DateTime now;
     late LiveSessionCubit cubit;
+    late Directory folder;
+    late LiveAudioDump dump;
 
     /// When set, the app's voice plays until it completes.
     Completer<void>? speech;
@@ -85,6 +92,8 @@ void main() {
     );
 
     setUp(() async {
+      folder = Directory.systemTemp.createTempSync('live_audio_test');
+      dump = LiveAudioDump(directory: () async => folder);
       mic = _MockMic();
       repository = _MockRepository();
       tts = _MockTts();
@@ -120,7 +129,7 @@ void main() {
         stream: stream,
         repository: repository,
         tts: tts,
-        muteWhileSpeaking: true,
+        dump: dump,
         now: () => now,
       );
       await cubit.start();
@@ -129,7 +138,10 @@ void main() {
       await pumpEventQueue();
     });
 
-    tearDown(() => cubit.close());
+    tearDown(() async {
+      await cubit.close();
+      folder.deleteSync(recursive: true);
+    });
 
     test('speaks a sentence however low its confidence', () async {
       stream.conversation.server.add(LiveFinal(_heard('물 주세요', 0.2)));
@@ -144,33 +156,67 @@ void main() {
     });
 
     test('sends silence instead of the microphone while speaking', () async {
-      final voice = Uint8List.fromList(List.generate(3200, (i) => i % 256));
       final playing = speech = Completer<void>();
       stream.conversation.server.add(LiveFinal(_heard('물 주세요', 0.6)));
       await pumpEventQueue();
       expect(cubit.state.micPaused, isTrue);
 
       // Zeroed PCM at the microphone's own pace, which stays open.
-      inputs.last.add(voice);
+      inputs.last.add(_voice);
       await pumpEventQueue();
       expect(stream.conversation.sent.last, Uint8List(3200));
 
       playing.complete();
       await pumpEventQueue();
-      inputs.last.add(voice);
+      now = now.add(LiveSessionCubit.muteTail);
+      inputs.last.add(Uint8List(3200));
       await pumpEventQueue();
-      expect(cubit.state.micPaused, isTrue);
-      expect(stream.conversation.sent.last, Uint8List(3200));
-
-      await Future<void>.delayed(
-        LiveSessionCubit.muteTail + const Duration(milliseconds: 50),
-      );
       expect(cubit.state.micPaused, isFalse);
-      inputs.last.add(voice);
+
+      inputs.last.add(_voice);
       await pumpEventQueue();
       expect(stream.conversation.sent.last, isNot(Uint8List(3200)));
       verifyNever(mic.stop);
       verify(mic.start).called(1);
+    });
+
+    test('holds the microphone back while the room is still loud', () async {
+      stream.conversation.server.add(LiveFinal(_heard('물 주세요', 0.6)));
+      await pumpEventQueue();
+
+      // Quiet input before the tail is over still stays out.
+      inputs.last.add(Uint8List(3200));
+      await pumpEventQueue();
+      expect(cubit.state.micPaused, isTrue);
+
+      now = now.add(LiveSessionCubit.muteTail);
+      inputs.last.add(_voice);
+      await pumpEventQueue();
+      expect(cubit.state.micPaused, isTrue);
+      expect(stream.conversation.sent.last, Uint8List(3200));
+
+      now = now.add(LiveSessionCubit.maxMuteTail);
+      inputs.last.add(_voice);
+      await pumpEventQueue();
+      expect(cubit.state.micPaused, isFalse);
+    });
+
+    test('keeps what was heard and what was sent side by side', () async {
+      stream.conversation.server.add(LiveFinal(_heard('물 주세요', 0.6)));
+      await pumpEventQueue();
+      inputs.last.add(_voice);
+      await pumpEventQueue();
+      await cubit.stop();
+
+      final files = folder.listSync(recursive: true).whereType<File>();
+      final mic = files.singleWhere((f) => f.path.endsWith('_mic.wav'));
+      final sent = files.singleWhere((f) => f.path.endsWith('_sent.wav'));
+      expect(mic.lengthSync(), sent.lengthSync());
+      // The voice while the app spoke went out as silence.
+      expect(sent.readAsBytesSync().sublist(sent.lengthSync() - 3200), [
+        for (var i = 0; i < 3200; i++) 0,
+      ]);
+      expect(mic.readAsBytesSync().sublist(mic.lengthSync() - 3200), _voice);
     });
 
     test('finishes the sentence under way before closing', () async {
