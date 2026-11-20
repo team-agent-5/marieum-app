@@ -475,8 +475,35 @@ void main() {
     );
 
     blocTest<UtteranceBloc, UtteranceState>(
-      'falls back to quick phrases when suggestions time out',
+      'offers the heard sentence when suggestions time out',
       build: () {
+        when(
+          () => repository.suggest(any()),
+        ).thenAnswer((_) async => const FailureResult(TimeoutFailure()));
+        return build();
+      },
+      act: (bloc) async {
+        bloc.add(const UtteranceButtonPressed(SpeakMode.precise));
+        await settle();
+        bloc.add(const UtteranceButtonPressed(SpeakMode.precise));
+        await settle();
+      },
+      verify: (bloc) {
+        expect(bloc.state.phase, UtterancePhase.suggesting);
+        expect(
+          bloc.state.suggestions?.candidates.single.text,
+          _clear.finalTranscript,
+        );
+      },
+    );
+
+    blocTest<UtteranceBloc, UtteranceState>(
+      'falls back to quick phrases when suggestions for an unclear '
+      'sentence time out',
+      build: () {
+        when(
+          () => repository.transcribe(any()),
+        ).thenAnswer((_) async => const Success(_unclear));
         when(
           () => repository.suggest(any()),
         ).thenAnswer((_) async => const FailureResult(TimeoutFailure()));

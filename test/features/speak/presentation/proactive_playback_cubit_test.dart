@@ -157,13 +157,12 @@ void main() {
       },
     );
     blocTest<PlaybackCubit, PlaybackState>(
-      'expires after three seconds without replaying or stopping the original',
+      'keeps the suggestion open until the patient answers',
       build: build,
       act: (cubit) async {
         unawaited(cubit.start());
         await Future<void>.delayed(const Duration(milliseconds: 3050));
-        expect(cubit.state.suggestionPending, isFalse);
-        await cubit.acceptSuggestion();
+        expect(cubit.state.suggestionPending, isTrue);
         verifyNever(tts.stop);
         verifyNever(() => tts.speak(_recommendation.candidate.text));
       },
