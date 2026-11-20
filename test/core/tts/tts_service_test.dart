@@ -250,6 +250,15 @@ void main() {
         },
       );
 
+      test('picks the same voice whatever order the engine lists', () async {
+        final ism = voice('ko-kr-x-ism-local', TtsVoiceQuality.high);
+        final koc = voice('ko-kr-x-koc-local', TtsVoiceQuality.high);
+        when(engine.koreanVoices).thenAnswer((_) async => [koc, ism]);
+        // The engine's first voice used to win a tie.
+        await service.availableVoices();
+        expect(service.currentVoice, ism);
+      });
+
       test('prefers an offline voice within the same quality', () async {
         final online = voice('온라인', TtsVoiceQuality.enhanced, network: true);
         final offline = voice('오프라인', TtsVoiceQuality.enhanced);

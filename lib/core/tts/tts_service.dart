@@ -60,14 +60,21 @@ class TtsService implements PlaybackTtsPort, TtsVoiceSelector {
     TtsVoice? best;
     for (final voice in voices) {
       final candidate = best;
-      if (candidate == null ||
-          (candidate.requiresNetwork && !voice.requiresNetwork) ||
-          (candidate.requiresNetwork == voice.requiresNetwork &&
-              voice.quality.index < candidate.quality.index)) {
-        best = voice;
-      }
+      if (candidate == null || _better(voice, candidate)) best = voice;
     }
     _currentVoice = best;
+  }
+
+  /// Offline first, then quality. The id settles ties, so the same voice is
+  /// chosen whatever order the engine lists them in.
+  static bool _better(TtsVoice voice, TtsVoice than) {
+    if (voice.requiresNetwork != than.requiresNetwork) {
+      return !voice.requiresNetwork;
+    }
+    if (voice.quality != than.quality) {
+      return voice.quality.index < than.quality.index;
+    }
+    return voice.id.compareTo(than.id) < 0;
   }
 
   @override

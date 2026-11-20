@@ -78,12 +78,16 @@ class _Conversation implements LiveConversation {
   bool _open = false;
   bool _closed = false;
 
+  /// No more audio is taken; `end` goes out once what is kept is sent.
+  bool _ending = false;
+  bool _endSent = false;
+
   @override
   Stream<LiveEvent> get events => _events.stream;
 
   @override
   void add(Uint8List audio) {
-    if (_closed) return;
+    if (_closed || _ending) return;
     _pending.add(audio);
     while (_pending.length >= frameBytes) {
       final bytes = _pending.takeBytes();
@@ -111,6 +115,23 @@ class _Conversation implements LiveConversation {
       channel.sink.add(_backlog.removeAt(0));
       await Future<void>.delayed(catchUpGap);
     }
+    _sendEnd();
+  }
+
+  @override
+  void end() {
+    if (_closed || _ending) return;
+    _ending = true;
+    // The last part of a frame still counts.
+    if (_pending.isNotEmpty) _frame(_pending.takeBytes());
+    _sendEnd();
+  }
+
+  void _sendEnd() {
+    if (!_ending || _endSent || !_open || _backlog.isNotEmpty) return;
+    _endSent = true;
+    _channel?.sink.add(jsonEncode({'type': 'end'}));
+    AppLog.ws('-> end');
   }
 
   @override
@@ -132,7 +153,8 @@ class _Conversation implements LiveConversation {
     var failures = 0;
     while (!_closed) {
       final outcome = await _attempt();
-      if (_closed || outcome == _Outcome.stop) return;
+      // After `end` nothing more will come over a new connection.
+      if (_closed || _endSent || outcome == _Outcome.stop) return;
       if (outcome == _Outcome.reconnect) {
         failures = 0;
         continue;
@@ -221,7 +243,7 @@ class _Conversation implements LiveConversation {
         final text = _clean(json['text'] as String? ?? '');
         if (json['final'] != true) {
           AppLog.ws('<- interim "$text"');
-          if (text.isNotEmpty) _emit(LiveInterim(text));
+          if (text.isNotEmpty) _emit(LiveInterim(text, traceId: traceId));
           return;
         }
         final confidence = (json['confidence'] as num?)?.toDouble() ?? 0;
@@ -249,12 +271,20 @@ class _Conversation implements LiveConversation {
           case 'UNAUTHORIZED':
             _source._expiry.emit();
             _emit(const LiveFailed(UnauthorizedFailure(), recovering: false));
+          case 'RATE_LIMITED':
+            // Audio went out faster than 48 KB/s and was dropped; the pace
+            // here stays under that, so it is only worth the log.
+            break;
           default:
             // The connection closes after this and is reopened.
             break;
         }
-      case 'end_notice':
-        AppLog.ws('<- end_notice ${json['reason']}');
+      case 'session_end':
+        // Sent once after `end`, when the last final is out; it may not be
+        // marked `is_last`, as an empty last final is left out.
+        AppLog.ws('<- session_end trace $traceId');
+        _emit(const LiveSessionEnded());
+      // `ping` keeps the tunnel open and needs no answer.
     }
   }
 

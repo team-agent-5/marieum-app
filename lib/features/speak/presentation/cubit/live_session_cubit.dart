@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:marieum_app/core/audio/live_audio_dump.dart';
 import 'package:marieum_app/core/audio/live_sound.dart';
 import 'package:marieum_app/core/audio/mic_stream.dart';
 import 'package:marieum_app/core/audio/recorder.dart';
@@ -16,7 +18,8 @@ import 'package:marieum_app/features/speak/domain/entities/utterance.dart';
 import 'package:marieum_app/features/speak/domain/repositories/live_stream.dart';
 import 'package:marieum_app/features/speak/domain/repositories/utterance_repository.dart';
 
-enum LiveStatus { starting, listening, failed, closed }
+/// `finishing`: the patient stopped mid-sentence and its end is awaited.
+enum LiveStatus { starting, listening, finishing, failed, closed }
 
 enum LiveSegmentStatus { interpreting, done, unclear, failed }
 
@@ -57,6 +60,7 @@ class LiveSessionState extends Equatable {
     this.hearing = false,
     this.threshold = SpeechSegmenter.defaultThreshold,
     this.playingId,
+    this.micPaused = false,
     this.elapsed = Duration.zero,
     this.segments = const [],
     this.failure,
@@ -73,8 +77,12 @@ class LiveSessionState extends Equatable {
   /// The level that currently counts as voice, following the room noise.
   final double threshold;
 
-  /// The segment actually playing; microphone capture continues meanwhile.
+  /// The segment actually playing.
   final int? playingId;
+
+  /// Whether silence goes out instead of the microphone around the app's
+  /// voice, so words said now are not heard.
+  final bool micPaused;
   final Duration elapsed;
   final List<LiveSegment> segments;
   final Failure? failure;
@@ -87,6 +95,7 @@ class LiveSessionState extends Equatable {
     bool? hearing,
     double? threshold,
     int? Function()? playingId,
+    bool? micPaused,
     Duration? elapsed,
     List<LiveSegment>? segments,
     Failure? failure,
@@ -96,6 +105,7 @@ class LiveSessionState extends Equatable {
     hearing: hearing ?? this.hearing,
     threshold: threshold ?? this.threshold,
     playingId: playingId == null ? this.playingId : playingId(),
+    micPaused: micPaused ?? this.micPaused,
     elapsed: elapsed ?? this.elapsed,
     segments: segments ?? this.segments,
     failure: failure ?? this.failure,
@@ -108,6 +118,7 @@ class LiveSessionState extends Equatable {
     hearing,
     threshold,
     playingId,
+    micPaused,
     elapsed,
     segments,
     failure,
@@ -124,9 +135,9 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     required this._stream,
     required this._repository,
     required this._tts,
-    this.muteWhileSpeaking = false,
     SpeechSegmenter? segmenter,
     LiveSound? sound,
+    this._dump,
     DateTime Function()? now,
   }) : _levels = segmenter ?? SpeechSegmenter(),
        _sound = sound ?? LiveSound(),
@@ -143,21 +154,36 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   /// level and gain settle; speech in it came out weak or clipped.
   static const warmUp = Duration(milliseconds: 300);
 
-  /// Below this a sentence is not spoken aloud: in live mode nobody checks
-  /// it first, and low readings were mostly wrong sentences.
-  static const speakConfidence = 0.6;
+  /// How long after a sentence a piece of it heard again is taken for the
+  /// recognizer starting over on its end.
+  static const leftoverWindow = Duration(seconds: 5);
 
-  /// How long after the app's voice ends its echo is still kept out.
-  static const muteTail = Duration(milliseconds: 600);
+  /// Zeroed PCM goes out instead of the microphone while the app speaks,
+  /// and after it until the input is back to the room's level, no sooner
+  /// than [muteTail] and no later than [maxMuteTail]: Android cannot cancel
+  /// the app's own playback from the input, and loud sound came in right
+  /// after it ended while the recording was being restored. The microphone
+  /// itself stays open, as restarting it at every sentence cost most of a
+  /// second and recreated Android's audio effects each time.
+  static const muteTail = Duration(milliseconds: 300);
+  static const maxMuteTail = Duration(milliseconds: 1500);
 
-  /// Sends near silence instead of the microphone while the app speaks.
-  /// Android cannot cancel the app's own media playback from the input, and
-  /// what iOS echo cancellation leaves still reached the recognizer as
-  /// stray syllables.
-  final bool muteWhileSpeaking;
+  /// How long the server reading more of a sentence counts as hearing the
+  /// patient.
+  static const readHearing = Duration(milliseconds: 800);
+
+  /// How often the input loudness is logged.
+  static const levelLogEvery = Duration(seconds: 1);
+
+  /// How long the server's `session_end` is awaited after the patient
+  /// stops; it came within half a second of `end`.
+  static const finishWait = Duration(milliseconds: 2500);
 
   final MicStream _mic;
   final LiveSound _sound;
+
+  /// Keeps the session's audio for listening back, when turned on.
+  final LiveAudioDump? _dump;
   final LiveStream _stream;
   final UtteranceRepository _repository;
   final PlaybackTtsPort _tts;
@@ -172,12 +198,36 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   StreamSubscription<LiveEvent>? _events;
   Timer? _clock;
   final _pending = <_LivePlayback>[];
-  bool _draining = false;
+  Future<void>? _draining;
   int _nextId = 0;
   bool _ended = false;
   bool _speechBusy = false;
-  DateTime? _mutedUntil;
   DateTime? _warmUntil;
+
+  /// Whether silence goes out instead of the microphone, and once the app
+  /// has stopped speaking, from when and until when the input may come
+  /// back.
+  bool _muted = false;
+  DateTime? _quietFrom;
+  DateTime? _unmuteBy;
+
+  /// While finishing, completes once the last sentence is in.
+  Completer<void>? _lastSentence;
+
+  /// The session's trace id, from the server's transcripts.
+  String _traceId = '';
+
+  /// When the server last read more of a sentence; quiet voices it hears
+  /// can stay under the input level.
+  DateTime? _readAt;
+
+  /// Input power gathered since [_levelSince] for the log.
+  DateTime? _levelSince;
+  int _levelCount = 0;
+  double _heardPower = 0;
+  double _sentPower = 0;
+  double _heardPeak = 0;
+  double _sentPeak = 0;
 
   /// The sentence the server is reading now, shown as it changes.
   int? _currentId;
@@ -185,7 +235,12 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   /// The latest reading of the sentence in progress, kept in case the
   /// final comes back looping.
   String? _lastInterim;
-  DateTime? _lastVoiceAt;
+
+  /// When the microphone last heard a voice above the room level.
+  DateTime? _voiceAt;
+
+  /// The last sentence the server finished, and when.
+  ({String text, DateTime at})? _lastFinal;
 
   /// Whether a connection problem is already on screen.
   bool _showingFailure = false;
@@ -203,6 +258,10 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
         return;
       }
       _input = stream.listen(_onChunk);
+      // Connecting takes about a second; it starts while the microphone
+      // settles so less audio waits for it.
+      final conversation = _conversation = _stream.connect();
+      _events = conversation.events.listen(_onEvent);
     } on Object catch (error) {
       if (_ended) return;
       final failure = error is Failure
@@ -217,8 +276,6 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
 
   void _listening() {
     _warmUntil = null;
-    final conversation = _conversation = _stream.connect();
-    _events = conversation.events.listen(_onEvent);
     final startedAt = _now();
     _clock = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!isClosed) {
@@ -242,19 +299,34 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
       }
       _listening();
     }
+    if (_muted) {
+      // Zeroed PCM, as the recognizer's team asks, at the microphone's own
+      // pace; the app's voice is kept out of the room level and the gain.
+      final silence = Uint8List(chunk.length);
+      _conversation?.add(silence);
+      _dump?.add(chunk, silence);
+      _unmuteOnceQuiet(level);
+      emit(
+        state.copyWith(
+          levels: [...levels.take(levels.length - 1), 0],
+          hearing: false,
+        ),
+      );
+      return;
+    }
     _levels.add(chunk, level: level);
-    if (_levels.hearing) _lastVoiceAt = _now();
-    final mutedUntil = _mutedUntil;
-    final muted =
-        muteWhileSpeaking &&
-        (_speechBusy || (mutedUntil != null && _now().isBefore(mutedUntil)));
-    _conversation?.add(
-      muted ? quietNoise(chunk.length) : _sound.process(chunk),
-    );
+    if (_levels.hearing) _voiceAt = _now();
+    final sent = _sound.process(chunk);
+    _conversation?.add(sent);
+    _dump?.add(chunk, sent);
+    _logLevel(chunk, sent);
+    final readAt = _readAt;
     emit(
       state.copyWith(
         levels: levels,
-        hearing: _levels.hearing,
+        hearing:
+            _levels.hearing ||
+            (readAt != null && _now().difference(readAt) < readHearing),
         threshold: _levels.threshold,
       ),
     );
@@ -263,13 +335,17 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   void _onEvent(LiveEvent event) {
     if (_ended || isClosed) return;
     switch (event) {
-      case LiveInterim(:final text):
+      case LiveInterim(:final text, :final traceId):
         if (_isEcho(text)) return;
+        if (traceId.isNotEmpty) _traceId = traceId;
         final id = _currentId ??= _nextId++;
+        // More of the sentence was read, so the patient was just speaking.
+        if (text != _lastInterim) _readAt = _now();
         _lastInterim = text;
         _clearFailure();
         _show(id, LiveSegmentStatus.interpreting, text);
       case LiveFinal(:final transcription):
+        if (transcription.traceId.isNotEmpty) _traceId = transcription.traceId;
         final id = _currentId ?? _nextId++;
         _currentId = null;
         final interim = _lastInterim;
@@ -277,12 +353,22 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
         _clearFailure();
         _settle(id, _unlooped(id, transcription, interim));
       case LiveUnclear():
+        // The server also reports a stretch it could not make out in the
+        // middle of a sentence it goes on reading; that sentence carries on.
+        if (_lastInterim != null) return;
         final id = _currentId;
         _currentId = null;
         _lastInterim = null;
         // Silence the server closed off is not worth a line.
         if (id != null) _show(id, LiveSegmentStatus.unclear, '');
+      case LiveSessionEnded():
+        _lastSentenceIn();
       case LiveFailed(:final failure, :final recovering):
+        // Finishing goes on with what was read of the sentence so far.
+        if (_lastSentence != null) {
+          _lastSentenceIn();
+          return;
+        }
         if (!recovering) {
           emit(state.copyWith(status: LiveStatus.failed, failure: failure));
           return;
@@ -317,21 +403,78 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     );
   }
 
+  /// Logs the input loudness once a second in dBFS, as heard and as sent
+  /// after processing, to tell quiet speech from speech that never got
+  /// through. Power is averaged before converting, so quiet stretches are
+  /// not cut off at the bottom of the input display's scale.
+  void _logLevel(Uint8List heard, Uint8List sent) {
+    final now = _now();
+    final since = _levelSince ??= now;
+    final heardPower = pcmPower(heard);
+    final sentPower = pcmPower(sent);
+    _levelCount++;
+    _heardPower += heardPower;
+    _sentPower += sentPower;
+    if (heardPower > _heardPeak) _heardPeak = heardPower;
+    if (sentPower > _sentPeak) _sentPeak = sentPower;
+    if (now.difference(since) < levelLogEvery) return;
+    String dbfs(double power) => power <= 0
+        ? '-inf'
+        : (10 * math.log(power) / math.ln10).toStringAsFixed(1);
+    AppLog.speak(
+      'live input dBFS mic avg=${dbfs(_heardPower / _levelCount)} '
+      'peak=${dbfs(_heardPeak)} '
+      'sent avg=${dbfs(_sentPower / _levelCount)} peak=${dbfs(_sentPeak)} '
+      'voice=${_levels.hearing}',
+    );
+    _levelSince = now;
+    _levelCount = 0;
+    _heardPower = _sentPower = _heardPeak = _sentPeak = 0;
+  }
+
   void _settle(int id, Transcription transcription) {
     final finalAt = _now();
-    final lastVoiceAt = _lastVoiceAt ?? finalAt;
+    final voiceAt = _voiceAt;
+    final readAt = _readAt;
+    _readAt = null;
+    // Latency is measured from the server's last reading of the sentence,
+    // which every sentence with an interim has; the microphone misses quiet
+    // voices. Without a reading it falls back to the microphone.
+    final basis = readAt != null
+        ? 'reading'
+        : voiceAt != null
+        ? 'mic'
+        : 'final';
+    final lastVoiceAt = readAt ?? voiceAt ?? finalAt;
+    final confidence = transcription.asrConfidence.toStringAsFixed(4);
+    String since(DateTime? at) =>
+        at == null ? '-' : '${finalAt.difference(at).inMilliseconds}';
     AppLog.speak(
-      'live segment $id last_voice=${lastVoiceAt.toIso8601String()} '
+      'live segment $id conf=$confidence '
       'final=${finalAt.toIso8601String()} '
-      'asr_ms=${finalAt.difference(lastVoiceAt).inMilliseconds}',
+      'from_mic_voice_ms=${since(voiceAt)} '
+      'from_last_reading_ms=${since(readAt)} latency_basis=$basis',
     );
     if (_isEcho(transcription.finalTranscript)) {
-      AppLog.speak("live segment $id was the app's own voice");
+      AppLog.speak("live segment $id conf=$confidence was the app's own voice");
       _remove(id);
       return;
     }
-    if (transcription.isLowConfidence ||
-        transcription.asrConfidence < speakConfidence ||
+    final last = _lastFinal;
+    if (last != null &&
+        finalAt.difference(last.at) < leftoverWindow &&
+        LivePhrasePolicy.isLeftover(transcription.finalTranscript, last.text)) {
+      AppLog.speak(
+        'live segment $id conf=$confidence '
+        'repeated the end of the last sentence',
+      );
+      _remove(id);
+      return;
+    }
+    _lastFinal = (text: transcription.finalTranscript, at: finalAt);
+    // Spoken whatever its confidence: in live mode the patient hears it at
+    // once and can say it again.
+    if (transcription.finalTranscript.trim().isEmpty ||
         transcription.finalTranscript.contains('�')) {
       _show(
         id,
@@ -348,17 +491,14 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   /// Speaks waiting sentences. Those that arrived while another was playing
   /// are read together in one go, so a patient who keeps talking is not
   /// held up sentence by sentence.
-  Future<void> _drain() async {
-    if (_draining) return;
-    _draining = true;
-    try {
-      while (_pending.isNotEmpty && !_ended && !isClosed) {
-        final batch = [..._pending];
-        _pending.clear();
-        await _speakAndLog(batch);
-      }
-    } finally {
-      _draining = false;
+  Future<void> _drain() =>
+      _draining ??= _speakPending().whenComplete(() => _draining = null);
+
+  Future<void> _speakPending() async {
+    while (_pending.isNotEmpty && !_ended && !isClosed) {
+      final batch = [..._pending];
+      _pending.clear();
+      await _speakAndLog(batch);
     }
   }
 
@@ -431,6 +571,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   }) async {
     if (_speechBusy) return const FailureResult(TtsFailure('이미 재생 중이에요.'));
     _speechBusy = true;
+    _mute();
     ({String text, DateTime? until})? entry;
     void finishPlayback() {
       final spoken = entry;
@@ -460,8 +601,38 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     } finally {
       finishPlayback();
       _speechBusy = false;
-      _mutedUntil = _now().add(muteTail);
+      final now = _now();
+      _quietFrom = now.add(muteTail);
+      _unmuteBy = now.add(maxMuteTail);
     }
+  }
+
+  /// Sends silence instead of the microphone from before the app speaks,
+  /// so neither its voice nor words said over it reach the recognizer.
+  void _mute() {
+    _quietFrom = _unmuteBy = null;
+    if (_muted || _ended || isClosed) return;
+    _muted = true;
+    emit(state.copyWith(micPaused: true, hearing: false));
+  }
+
+  /// Lets the microphone through again once the app's voice has died down
+  /// to the room's level, or at the latest by [maxMuteTail].
+  void _unmuteOnceQuiet(double level) {
+    final quietFrom = _quietFrom;
+    final unmuteBy = _unmuteBy;
+    if (quietFrom == null || unmuteBy == null || _lastSentence != null) return;
+    final now = _now();
+    if (now.isBefore(quietFrom)) return;
+    final quiet = level < _levels.threshold;
+    if (!quiet && now.isBefore(unmuteBy)) return;
+    _muted = false;
+    _quietFrom = _unmuteBy = null;
+    final at = _dump == null ? '' : ' at ${_dump.seconds.toStringAsFixed(1)}s';
+    AppLog.speak(
+      'live microphone back${quiet ? '' : ' while still loud'}$at',
+    );
+    emit(state.copyWith(micPaused: false));
   }
 
   /// Adds the segment on its first news, or updates it.
@@ -476,9 +647,10 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
         segments: known
             ? [
                 for (final segment in state.segments)
-                  segment.id == id
-                      ? segment.copyWith(status: status, text: visibleText)
-                      : segment,
+                  if (segment.id == id)
+                    segment.copyWith(status: status, text: visibleText)
+                  else
+                    segment,
               ]
             : [
                 ...state.segments,
@@ -502,10 +674,57 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     await _speak(id, segment.text);
   }
 
-  /// Ends the session; sentences still on their way are dropped.
+  /// Ends the session once the sentence the patient was saying is in: the
+  /// server is told no more audio is coming and its finals are taken until
+  /// it sends `session_end`, for up to [finishWait]. What was read of a
+  /// sentence that got no final is taken as it is. Everything is spoken,
+  /// then closed. Without a sentence under way, or called again while
+  /// waiting, it ends at once.
+  Future<void> finish() async {
+    if (_ended) return;
+    final conversation = _conversation;
+    if (_lastSentence != null || _lastInterim == null || conversation == null) {
+      return stop();
+    }
+    final last = _lastSentence = Completer<void>();
+    AppLog.speak('live finishing, last sentence awaited');
+    emit(state.copyWith(status: LiveStatus.finishing));
+    _muted = true;
+    _quietFrom = _unmuteBy = null;
+    conversation.end();
+    await last.future.timeout(
+      finishWait,
+      onTimeout: () => AppLog.speak('live session_end did not come'),
+    );
+    final id = _currentId;
+    final interim = _lastInterim;
+    if (!_ended && id != null && interim != null) {
+      AppLog.speak('live segment $id ended without a final, reading used');
+      _currentId = null;
+      _lastInterim = null;
+      _settle(
+        id,
+        Transcription(
+          traceId: _traceId,
+          finalTranscript: interim,
+          asrConfidence: 0,
+        ),
+      );
+    }
+    await _draining;
+    await stop();
+  }
+
+  void _lastSentenceIn() {
+    final last = _lastSentence;
+    if (last != null && !last.isCompleted) last.complete();
+  }
+
+  /// Ends the session at once; sentences still on their way are dropped.
   Future<void> stop() async {
     if (_ended) return;
     _ended = true;
+    _lastSentenceIn();
     _clock?.cancel();
     await _events?.cancel();
     _events = null;
@@ -519,6 +738,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     if (!isClosed) {
       emit(state.copyWith(status: LiveStatus.closed, playingId: () => null));
     }
+    await _dump?.save();
   }
 
   @override
