@@ -143,10 +143,6 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   /// level and gain settle; speech in it came out weak or clipped.
   static const warmUp = Duration(milliseconds: 300);
 
-  /// Below this a sentence is not spoken aloud: in live mode nobody checks
-  /// it first, and low readings were mostly wrong sentences.
-  static const speakConfidence = 0.6;
-
   /// How long after the app's voice ends its echo is still kept out.
   static const muteTail = Duration(milliseconds: 600);
 
@@ -330,8 +326,9 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
       _remove(id);
       return;
     }
-    if (transcription.isLowConfidence ||
-        transcription.asrConfidence < speakConfidence ||
+    // Spoken whatever its confidence: in live mode the patient hears it at
+    // once and can say it again.
+    if (transcription.finalTranscript.trim().isEmpty ||
         transcription.finalTranscript.contains('�')) {
       _show(
         id,
