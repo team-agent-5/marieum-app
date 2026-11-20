@@ -32,6 +32,9 @@ class _FakeChannel extends Fake implements WebSocketChannel {
   /// The server closes an open connection.
   void hangUp() => unawaited(_incoming.close());
 
+  /// A message from the server.
+  void receive(String message) => _incoming.add(message);
+
   /// Opens and is closed by the server right away with [code].
   void refuse(int code) {
     _closeCode = code;
@@ -74,6 +77,25 @@ void main() {
       conversation.events.listen(events.add);
       return conversation;
     }
+
+    test('reads the end of the session and a pace warning', () async {
+      final channel = _FakeChannel()..open();
+      final conversation = connect(() => channel);
+      await Future<void>.delayed(Duration.zero);
+      // As the server sent them after `end` on 2026-11-20.
+      channel
+        ..receive(
+          '{"type":"transcript","text":"물 좀 주세요","final":true, '
+          '"is_last":false,"trace_id":"t","confidence":0.5602}',
+        )
+        ..receive('{"type":"error","error_code":"RATE_LIMITED","trace_id":"t"}')
+        ..receive('{"type":"ping","trace_id":"t"}')
+        ..receive('{"type":"session_end","trace_id":"t"}');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(events, [isA<LiveFinal>(), isA<LiveSessionEnded>()]);
+      await conversation.close();
+    });
 
     test('ends the input after the audio already given', () async {
       final channels = <_FakeChannel>[];

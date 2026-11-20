@@ -28,6 +28,11 @@ final class LiveUnclear extends LiveEvent {
   const LiveUnclear();
 }
 
+/// After the input was ended, the server has sent every sentence it had.
+final class LiveSessionEnded extends LiveEvent {
+  const LiveSessionEnded();
+}
+
 /// The connection is lost or refused; the conversation keeps trying unless
 /// the failure is final, such as an expired login.
 final class LiveFailed extends LiveEvent {

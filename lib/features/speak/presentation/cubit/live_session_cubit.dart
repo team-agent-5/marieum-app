@@ -168,10 +168,6 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   static const muteTail = Duration(milliseconds: 300);
   static const maxMuteTail = Duration(milliseconds: 1500);
 
-  /// How long after the last sentence's final further finals are taken
-  /// while finishing; the server does not say which final is the last.
-  static const finishGrace = Duration(milliseconds: 700);
-
   /// How long the server reading more of a sentence counts as hearing the
   /// patient.
   static const readHearing = Duration(milliseconds: 800);
@@ -179,7 +175,8 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   /// How often the input loudness is logged.
   static const levelLogEvery = Duration(seconds: 1);
 
-  /// How long the sentence under way is awaited after the patient stops.
+  /// How long the server's `session_end` is awaited after the patient
+  /// stops; it came within half a second of `end`.
   static const finishWait = Duration(milliseconds: 2500);
 
   final MicStream _mic;
@@ -355,7 +352,6 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
         _lastInterim = null;
         _clearFailure();
         _settle(id, _unlooped(id, transcription, interim));
-        _lastSentenceIn();
       case LiveUnclear():
         // The server also reports a stretch it could not make out in the
         // middle of a sentence it goes on reading; that sentence carries on.
@@ -365,6 +361,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
         _lastInterim = null;
         // Silence the server closed off is not worth a line.
         if (id != null) _show(id, LiveSegmentStatus.unclear, '');
+      case LiveSessionEnded():
         _lastSentenceIn();
       case LiveFailed(:final failure, :final recovering):
         // Finishing goes on with what was read of the sentence so far.
@@ -678,10 +675,11 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   }
 
   /// Ends the session once the sentence the patient was saying is in: the
-  /// server is told no more audio is coming, its last sentence awaited for
-  /// up to [finishWait] (or what was read of it so far taken) and spoken,
-  /// then everything closes. Without a sentence under way, or called again
-  /// while waiting, it ends at once.
+  /// server is told no more audio is coming and its finals are taken until
+  /// it sends `session_end`, for up to [finishWait]. What was read of a
+  /// sentence that got no final is taken as it is. Everything is spoken,
+  /// then closed. Without a sentence under way, or called again while
+  /// waiting, it ends at once.
   Future<void> finish() async {
     if (_ended) return;
     final conversation = _conversation;
@@ -694,13 +692,10 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     _muted = true;
     _quietFrom = _unmuteBy = null;
     conversation.end();
-    var finalCame = false;
-    await last.future
-        .then((_) => finalCame = _lastInterim == null)
-        .timeout(finishWait, onTimeout: () => false);
-    // The server does not mark its last final, so one more after the first
-    // is waited for briefly.
-    if (finalCame && !_ended) await Future<void>.delayed(finishGrace);
+    await last.future.timeout(
+      finishWait,
+      onTimeout: () => AppLog.speak('live session_end did not come'),
+    );
     final id = _currentId;
     final interim = _lastInterim;
     if (!_ended && id != null && interim != null) {

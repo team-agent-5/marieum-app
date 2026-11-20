@@ -228,13 +228,30 @@ void main() {
       expect(cubit.state.status, LiveStatus.finishing);
       expect(stream.conversation.ended, isTrue);
 
-      stream.conversation.server.add(LiveFinal(_heard('물 좀 주세요', 0.5)));
+      // As the server sends it: the final, not marked last, then the end.
+      stream.conversation.server
+        ..add(LiveFinal(_heard('물 좀 주세요', 0.5)))
+        ..add(const LiveSessionEnded());
       await finishing;
       verifySpoken('물 좀 주세요');
       expect(cubit.state.status, LiveStatus.closed);
     });
 
-    test('reads out what was heard when the sentence never ends', () async {
+    test(
+      'reads out what was heard when the session ends without a final',
+      () async {
+        stream.conversation.server.add(const LiveInterim('물 좀 주세요'));
+        await pumpEventQueue();
+
+        final finishing = cubit.finish();
+        await pumpEventQueue();
+        stream.conversation.server.add(const LiveSessionEnded());
+        await finishing;
+        verifySpoken('물 좀 주세요');
+      },
+    );
+
+    test('reads out what was heard when the connection fails', () async {
       stream.conversation.server.add(
         const LiveInterim('물 좀 주세요', traceId: 'session'),
       );
@@ -257,15 +274,18 @@ void main() {
       expect(logged.traceId, 'session');
     });
 
-    test('takes a final that follows the first while finishing', () async {
+    test('takes every final until the session ends', () async {
       stream.conversation.server.add(const LiveInterim('물 좀'));
       await pumpEventQueue();
 
       final finishing = cubit.finish();
       await pumpEventQueue();
       stream.conversation.server.add(LiveFinal(_heard('물 좀', 0.5)));
-      await Future<void>.delayed(LiveSessionCubit.finishGrace ~/ 2);
-      stream.conversation.server.add(LiveFinal(_heard('주세요', 0.5)));
+      await pumpEventQueue();
+      expect(cubit.state.status, LiveStatus.finishing);
+      stream.conversation.server
+        ..add(LiveFinal(_heard('주세요', 0.5)))
+        ..add(const LiveSessionEnded());
       await finishing;
       expect(cubit.state.segments.map((s) => s.text), ['물 좀', '주세요']);
     });

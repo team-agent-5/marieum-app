@@ -271,10 +271,19 @@ class _Conversation implements LiveConversation {
           case 'UNAUTHORIZED':
             _source._expiry.emit();
             _emit(const LiveFailed(UnauthorizedFailure(), recovering: false));
+          case 'RATE_LIMITED':
+            // Audio went out faster than 48 KB/s and was dropped; the pace
+            // here stays under that, so it is only worth the log.
+            break;
           default:
             // The connection closes after this and is reopened.
             break;
         }
+      case 'session_end':
+        // Sent once after `end`, when the last final is out; it may not be
+        // marked `is_last`, as an empty last final is left out.
+        AppLog.ws('<- session_end trace $traceId');
+        _emit(const LiveSessionEnded());
       // `ping` keeps the tunnel open and needs no answer.
     }
   }
