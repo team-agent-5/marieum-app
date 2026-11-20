@@ -21,5 +21,30 @@ void main() {
       expect(page.entries.single.selectedRank, isNull);
       expect(page.nextCursor, 'next');
     });
+
+    test('drops rejected suggestions the patient never said', () {
+      final page = decodeHistoryPage({
+        'items': [
+          {
+            'log_id': 79,
+            'final_text': '화장실 가고 싶어요',
+            'source': 'voice_bypass',
+            'created_at': '2026-11-20T07:43:13Z',
+            'selected_rank': null,
+          },
+          {
+            'log_id': 78,
+            'final_text': '물 좀 주세요',
+            'source': 'rejected',
+            'created_at': '2026-11-20T07:43:12Z',
+            'selected_rank': null,
+          },
+        ],
+        'total_estimate': 2,
+        'next_cursor': null,
+      });
+      expect(page.entries.map((e) => e.logId), ['79']);
+      expect(page.total, 1);
+    });
   });
 }

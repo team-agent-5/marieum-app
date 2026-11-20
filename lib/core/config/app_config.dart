@@ -9,7 +9,7 @@ class AppConfig {
   const AppConfig.fromEnvironment()
     : baseUrl = const String.fromEnvironment(
         'API_BASE_URL',
-        defaultValue: 'https://unity-cohen-reality-lived.trycloudflare.com',
+        defaultValue: 'https://api.beens.kr',
       ),
       wsUrl = const String.fromEnvironment('WS_BASE_URL'),
       copaApiKey = const String.fromEnvironment('COPA_API_KEY');
