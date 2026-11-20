@@ -10,6 +10,17 @@ abstract final class LivePhrasePolicy {
   static bool repeats(String text) =>
       RegExp(r'(.{4,})\1').hasMatch(_normalize(text));
 
+  /// The recognizer sometimes starts the next sentence on the end of the
+  /// last one, as in "가방이" after "책상이 가방이 있습니다"; such a piece
+  /// was already said.
+  static bool isLeftover(String heard, String previous) {
+    final piece = _normalize(heard);
+    final whole = _normalize(previous);
+    return piece.isNotEmpty &&
+        piece.length < whole.length &&
+        whole.contains(piece);
+  }
+
   /// Too short to stand for a sentence.
   static bool isFragment(String text) => _normalize(text).runes.length <= 2;
 

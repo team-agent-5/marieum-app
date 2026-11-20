@@ -10,8 +10,11 @@ sealed class LiveEvent {
 /// What the server understands so far of the sentence under way; replaced
 /// by later events.
 final class LiveInterim extends LiveEvent {
-  const LiveInterim(this.text);
+  const LiveInterim(this.text, {this.traceId = ''});
   final String text;
+
+  /// The session's trace id, when the server sent one.
+  final String traceId;
 }
 
 /// The server heard the patient finish a sentence.
@@ -40,6 +43,10 @@ abstract interface class LiveConversation {
 
   /// PCM16 16 kHz mono audio.
   void add(Uint8List audio);
+
+  /// No more audio is coming: the server finishes the sentence it has and
+  /// sends it as usual.
+  void end();
   Future<void> close();
 }
 

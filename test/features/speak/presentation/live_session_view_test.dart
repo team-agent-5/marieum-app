@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -168,6 +170,66 @@ void main() {
       expect(find.text('전달하고 있어요'), findsOneWidget);
       expect(barColors(tester), contains(AppTokens.primary));
       expect(find.byIcon(Icons.volume_up_rounded), findsOneWidget);
+    });
+
+    testWidgets('asks to wait until the microphone is back', (tester) async {
+      final segment = LiveSegment(
+        id: 0,
+        at: _at,
+        status: LiveSegmentStatus.done,
+        text: '고마워요',
+      );
+      final speaking = LiveSessionState(
+        status: LiveStatus.listening,
+        playingId: 0,
+        micPaused: true,
+        segments: [segment],
+      );
+      final states = StreamController<LiveSessionState>();
+      cubit = _MockLiveSessionCubit();
+      whenListen(cubit, states.stream, initialState: speaking);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: BlocProvider<LiveSessionCubit>.value(
+            value: cubit,
+            child: LiveSessionView(onClose: () {}),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 500));
+      const toast = '읽어드리는 동안 잠시 기다려 주세요';
+      expect(find.text(toast), findsOneWidget);
+
+      // The voice has ended but the microphone is still reopening.
+      states.add(speaking.copyWith(playingId: () => null));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text(toast), findsOneWidget);
+
+      states.add(speaking.copyWith(playingId: () => null, micPaused: false));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text(toast), findsNothing);
+      await states.close();
+    });
+
+    testWidgets('says the last words are on their way while finishing', (
+      tester,
+    ) async {
+      await pumpView(
+        tester,
+        const LiveSessionState(status: LiveStatus.finishing),
+      );
+      expect(find.text('하시던 말을 마저 전하고 있어요'), findsOneWidget);
+      expect(find.text('마무리하고 있어요'), findsOneWidget);
+      expect(find.text('바로 끝내기'), findsOneWidget);
+    });
+
+    testWidgets('shows no wait message while listening', (tester) async {
+      await pumpView(
+        tester,
+        const LiveSessionState(status: LiveStatus.listening),
+      );
+      expect(find.text('읽어드리는 동안 잠시 기다려 주세요'), findsNothing);
     });
   });
 }

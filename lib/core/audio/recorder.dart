@@ -151,8 +151,8 @@ class Recorder {
   }
 }
 
-/// Maps PCM16 little-endian RMS onto a 0..1 scale spanning -50 dBFS to 0.
-double pcmLevel(List<int> chunk) {
+/// Mean square of PCM16 little-endian samples, 0 to 1.
+double pcmPower(List<int> chunk) {
   final samples = chunk.length ~/ 2;
   if (samples == 0) return 0;
   final data = ByteData.sublistView(Uint8List.fromList(chunk));
@@ -161,7 +161,12 @@ double pcmLevel(List<int> chunk) {
     final sample = data.getInt16(i * 2, Endian.little) / 32768;
     sum += sample * sample;
   }
-  final rms = math.sqrt(sum / samples);
+  return sum / samples;
+}
+
+/// Maps PCM16 little-endian RMS onto a 0..1 scale spanning -50 dBFS to 0.
+double pcmLevel(List<int> chunk) {
+  final rms = math.sqrt(pcmPower(chunk));
   if (rms <= 0) return 0;
   final db = 20 * math.log(rms) / math.ln10;
   return ((db + 50) / 50).clamp(0, 1).toDouble();

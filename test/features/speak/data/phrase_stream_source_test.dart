@@ -29,6 +29,9 @@ class _FakeChannel extends Fake implements WebSocketChannel {
 
   void open() => _ready.complete();
 
+  /// The server closes an open connection.
+  void hangUp() => unawaited(_incoming.close());
+
   /// Opens and is closed by the server right away with [code].
   void refuse(int code) {
     _closeCode = code;
@@ -71,6 +74,32 @@ void main() {
       conversation.events.listen(events.add);
       return conversation;
     }
+
+    test('ends the input after the audio already given', () async {
+      final channels = <_FakeChannel>[];
+      final conversation = connect(() {
+        final channel = _FakeChannel()..open();
+        channels.add(channel);
+        return channel;
+      });
+      await Future<void>.delayed(Duration.zero);
+      conversation
+        ..add(Uint8List(3200))
+        ..add(Uint8List(1000))
+        ..end()
+        ..add(Uint8List(3200));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      final sent = channels.single.sent;
+      expect(sent.whereType<Uint8List>().map((f) => f.length), [3200, 1000]);
+      expect(sent.last, '{"type":"end"}');
+
+      // Nothing more comes after `end`, so a closed connection stays closed.
+      channels.single.hangUp();
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(channels, hasLength(1));
+      await conversation.close();
+    });
 
     test('sends audio kept before opening under the server limit', () async {
       final channel = _FakeChannel();
