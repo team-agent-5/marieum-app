@@ -61,9 +61,14 @@ class _Conversation implements LiveConversation {
   /// Audio kept while reconnecting so a sentence in progress survives.
   static const backlogFrames = 30;
 
-  /// Gap between kept frames when sending them after reconnecting.
-  static const catchUpGap = Duration(milliseconds: 50);
+  /// Gap between kept frames when sending them after reconnecting: 1.25
+  /// times real pace (40 KB/s), under the server's 48 KB/s limit, past which
+  /// it drops audio.
+  static const catchUpGap = Duration(milliseconds: 80);
   static const _unauthorized = 4001;
+
+  /// The server keeps one connection per patient and refuses another.
+  static const _tooManyConnections = 4003;
 
   final PhraseStreamSource _source;
   final _events = StreamController<LiveEvent>();
@@ -98,8 +103,9 @@ class _Conversation implements LiveConversation {
     if (!_open && _backlog.length > backlogFrames) _backlog.removeAt(0);
   }
 
-  /// Sends audio kept while reconnecting at twice its real pace, new audio
-  /// queued behind it, so the recognizer does not get seconds at once.
+  /// Sends audio kept while reconnecting a little faster than its real pace,
+  /// new audio queued behind it, so the recognizer does not get seconds at
+  /// once.
   Future<void> _catchUp(WebSocketChannel channel) async {
     while (_open && _channel == channel && _backlog.isNotEmpty) {
       channel.sink.add(_backlog.removeAt(0));
@@ -193,6 +199,9 @@ class _Conversation implements LiveConversation {
       _emit(const LiveFailed(UnauthorizedFailure(), recovering: false));
       return _Outcome.stop;
     }
+    // The previous connection is not released yet; trying again at once
+    // would only be refused again.
+    if (code == _tooManyConnections) return _Outcome.failed;
     // The server may close after each sentence or at its length limit; the
     // conversation simply carries on over a new connection.
     return _Outcome.reconnect;
