@@ -275,8 +275,7 @@ class _Conversation implements LiveConversation {
             // The connection closes after this and is reopened.
             break;
         }
-      case 'end_notice':
-        AppLog.ws('<- end_notice ${json['reason']}');
+      // `ping` keeps the tunnel open and needs no answer.
     }
   }
 

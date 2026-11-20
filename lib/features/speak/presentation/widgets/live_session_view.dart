@@ -399,12 +399,10 @@ class _HistoryState extends State<_History> {
       if (MediaQuery.disableAnimationsOf(context)) {
         _scroll.jumpTo(end);
       } else {
-        unawaited(
-          _scroll.animateTo(
-            end,
-            duration: const Duration(milliseconds: 280),
-            curve: Curves.easeOutCubic,
-          ),
+        _scroll.animateTo(
+          end,
+          duration: const Duration(milliseconds: 280),
+          curve: Curves.easeOutCubic,
         );
       }
     });
@@ -728,7 +726,7 @@ class _BlinkingDotState extends State<_BlinkingDot>
         ..stop()
         ..value = 0;
     } else if (!_controller.isAnimating) {
-      unawaited(_controller.repeat());
+      _controller.repeat();
     }
   }
 
