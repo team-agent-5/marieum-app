@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -78,7 +77,7 @@ class _SpeakCtaState extends State<SpeakCta>
         widget.phase == UtterancePhase.idle &&
         !MediaQuery.disableAnimationsOf(context);
     if (animate && !_breath.isAnimating) {
-      unawaited(_breath.repeat());
+      _breath.repeat();
     } else if (!animate && _breath.isAnimating) {
       _breath
         ..stop()
@@ -105,15 +104,43 @@ class _SpeakCtaState extends State<SpeakCta>
   };
 
   String get _hint => switch (widget.phase) {
-    UtterancePhase.recording => '손을 떼면 끝나요',
-    UtterancePhase.analyzing => '분석하고 있어요',
+    UtterancePhase.recording when widget.hold => '녹음 중 · 손을 떼면 끝나요',
+    UtterancePhase.recording => '녹음 중 · 다시 누르면 끝나요',
+    UtterancePhase.analyzing => '말씀을 분석하고 있어요',
     _ when widget.hold => '누르고 있는 동안 말씀하세요',
     _ => '눌러서 말하기',
   };
 
+  /// Fill, rim and hint colors: blue to speak, red while recording, navy
+  /// while the words are analyzed.
+  ({Color fill, Color rim, Color hint, Color glow}) get _look => _recording
+      ? (
+          fill: AppTokens.recording,
+          rim: AppTokens.recordingRim,
+          hint: AppTokens.recording,
+          glow: const Color(0x3398343F),
+        )
+      : _analyzing
+      ? (
+          fill: AppTokens.analyzing,
+          rim: AppTokens.analyzingRim,
+          hint: AppTokens.analyzing,
+          glow: const Color(0x332F4A8A),
+        )
+      : (
+          fill: AppTokens.primaryStrong,
+          rim: AppTokens.primary,
+          hint: AppTokens.ink2,
+          glow: const Color(0x383564D8),
+        );
+
   @override
   Widget build(BuildContext context) {
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final change = reduceMotion
+        ? Duration.zero
+        : const Duration(milliseconds: 200);
+    final look = _look;
     final remaining =
         1 -
         (widget.elapsed.inMilliseconds / Recorder.maxDuration.inMilliseconds)
@@ -141,17 +168,17 @@ class _SpeakCtaState extends State<SpeakCta>
                   alignment: Alignment.center,
                   children: [
                     if (_recording) ...[
+                      // Grows a little with the voice so the patient sees
+                      // they are heard.
                       AnimatedContainer(
                         duration: reduceMotion
                             ? Duration.zero
                             : const Duration(milliseconds: 120),
                         width: _ring + (reduceMotion ? 0 : widget.level * 30),
                         height: _ring + (reduceMotion ? 0 : widget.level * 30),
-                        decoration: BoxDecoration(
+                        decoration: const BoxDecoration(
                           shape: BoxShape.circle,
-                          color: AppTokens.primary.withValues(
-                            alpha: .08 + widget.level * .14,
-                          ),
+                          color: AppTokens.recordingSoft,
                         ),
                       ),
                       SizedBox.square(
@@ -160,7 +187,19 @@ class _SpeakCtaState extends State<SpeakCta>
                           painter: _CountdownPainter(remaining: remaining),
                         ),
                       ),
-                    ] else
+                    ] else if (_analyzing)
+                      Container(
+                        width: _ring,
+                        height: _ring,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: AppTokens.analyzingSoft,
+                            width: 1.5,
+                          ),
+                        ),
+                      )
+                    else
                       AnimatedBuilder(
                         animation: _breath,
                         builder: (context, _) => Stack(
@@ -178,29 +217,23 @@ class _SpeakCtaState extends State<SpeakCta>
                           ],
                         ),
                       ),
-                    AnimatedOpacity(
-                      duration: const Duration(milliseconds: 150),
-                      opacity: _analyzing ? .72 : 1,
-                      child: Container(
-                        width: _button,
-                        height: _button,
-                        decoration: BoxDecoration(
-                          color: AppTokens.primaryStrong,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: AppTokens.primary,
-                            width: 9,
+                    AnimatedContainer(
+                      duration: change,
+                      width: _button,
+                      height: _button,
+                      decoration: BoxDecoration(
+                        color: look.fill,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: look.rim, width: 9),
+                        boxShadow: [
+                          BoxShadow(
+                            color: look.glow,
+                            blurRadius: 30,
+                            offset: const Offset(0, 14),
                           ),
-                          boxShadow: const [
-                            BoxShadow(
-                              color: Color(0x383564D8),
-                              blurRadius: 30,
-                              offset: Offset(0, 14),
-                            ),
-                          ],
-                        ),
-                        child: _content(),
+                        ],
                       ),
+                      child: _content(),
                     ),
                   ],
                 ),
@@ -212,7 +245,13 @@ class _SpeakCtaState extends State<SpeakCta>
         ExcludeSemantics(
           child: Text(
             _hint,
-            style: const TextStyle(fontSize: 13, color: AppTokens.ink2),
+            style: TextStyle(
+              fontSize: 15,
+              color: look.hint,
+              fontWeight: widget.phase == UtterancePhase.idle
+                  ? FontWeight.w500
+                  : FontWeight.w700,
+            ),
           ),
         ),
         const SizedBox(height: 44),
@@ -222,29 +261,39 @@ class _SpeakCtaState extends State<SpeakCta>
 
   Widget _content() {
     if (_analyzing) {
-      return const Center(
-        child: SizedBox.square(
-          dimension: 44,
-          child: CircularProgressIndicator(
-            strokeWidth: 4,
-            color: AppTokens.surface,
+      return const Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox.square(
+            dimension: 36,
+            child: CircularProgressIndicator(
+              strokeWidth: 3,
+              color: AppTokens.surface,
+              backgroundColor: Color(0x33FFFFFF),
+            ),
           ),
-        ),
+          SizedBox(height: 14),
+          Text(
+            '분석 중',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w900,
+              color: AppTokens.surface,
+            ),
+          ),
+        ],
       );
     }
     if (_recording) {
       return Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Container(
-            width: 26,
-            height: 26,
-            decoration: BoxDecoration(
-              color: AppTokens.surface,
-              borderRadius: BorderRadius.circular(6),
-            ),
+          const Icon(
+            Icons.graphic_eq_rounded,
+            color: AppTokens.surface,
+            size: 36,
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 6),
           Text(
             _clock,
             style: const TextStyle(
@@ -314,7 +363,7 @@ class _CountdownPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    const stroke = 6.0;
+    const stroke = 3.0;
     final rect = (Offset.zero & size).deflate(stroke / 2);
     canvas
       ..drawArc(
@@ -325,7 +374,7 @@ class _CountdownPainter extends CustomPainter {
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = stroke
-          ..color = AppTokens.primarySoft,
+          ..color = AppTokens.recordingRim.withValues(alpha: .35),
       )
       ..drawArc(
         rect,
@@ -336,7 +385,7 @@ class _CountdownPainter extends CustomPainter {
           ..style = PaintingStyle.stroke
           ..strokeWidth = stroke
           ..strokeCap = StrokeCap.round
-          ..color = AppTokens.primary,
+          ..color = AppTokens.recording,
       );
   }
 
