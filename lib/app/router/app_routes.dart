@@ -6,6 +6,12 @@ abstract final class AppRoutes {
   static const speak = '/speak';
   static const playback = '/speak/playback';
   static const live = '/speak/live';
+
+  /// The patient's code for the other phone.
+  static const listenHost = '/speak/listen';
+
+  /// The other phone, without a login.
+  static const listener = '/listener';
   static const history = '/history';
   static const settings = '/settings';
   static const quickPhrases = '/quick-phrases';

@@ -8,9 +8,10 @@ import 'package:marieum_app/features/speak/domain/repositories/speak_mode_reposi
 
 class SpeakModeRepositoryImpl implements SpeakModeRepository {
   SpeakModeRepositoryImpl({required this._prefs, required this._source})
-    : initialMode = _prefs.readString(PrefsKeys.speakMode) == 'live'
-          ? SpeakMode.live
-          : SpeakMode.precise;
+    : initialMode = SpeakMode.values.firstWhere(
+        (mode) => mode.name == _prefs.readString(PrefsKeys.speakMode),
+        orElse: () => SpeakMode.precise,
+      );
   final PrefsStore _prefs;
   final SpeakPreferencesDataSource _source;
   @override

@@ -14,6 +14,8 @@ import 'package:marieum_app/features/history/domain/repositories/history_reposit
 import 'package:marieum_app/features/history/presentation/cubit/history_cubit.dart';
 import 'package:marieum_app/features/insight/domain/entities/insight_summary.dart';
 import 'package:marieum_app/features/insight/presentation/cubit/insight_cubit.dart';
+import 'package:marieum_app/features/listen/presentation/cubit/listen_host_cubit.dart';
+import 'package:marieum_app/features/listen/presentation/cubit/listener_cubit.dart';
 import 'package:marieum_app/features/quick_phrase/domain/entities/quick_phrase.dart';
 import 'package:marieum_app/features/quick_phrase/presentation/bloc/quick_phrase_bloc.dart';
 import 'package:marieum_app/features/settings/domain/entities/app_settings.dart';
@@ -45,6 +47,12 @@ class _MockUtteranceBloc extends MockBloc<UtteranceEvent, UtteranceState>
 
 class _MockLiveSessionCubit extends MockCubit<LiveSessionState>
     implements LiveSessionCubit {}
+
+class _MockListenHostCubit extends MockCubit<ListenHostState>
+    implements ListenHostCubit {}
+
+class _MockListenerCubit extends MockCubit<ListenerState>
+    implements ListenerCubit {}
 
 class _MockHistoryCubit extends MockCubit<HistoryState>
     implements HistoryCubit {}
@@ -80,6 +88,8 @@ extension PumpApp on WidgetTester {
     QuickPhraseBloc Function()? createQuickPhraseBloc,
     PlaybackCubit Function(PlaybackRequest)? createPlaybackCubit,
     LiveSessionCubit Function()? createLiveSessionCubit,
+    ListenHostCubit Function()? createListenHostCubit,
+    ListenerCubit Function()? createListenerCubit,
     UtteranceBloc Function()? createUtteranceBloc,
     bool reduceMotion = true,
   }) async {
@@ -185,6 +195,31 @@ extension PumpApp on WidgetTester {
             when(playback.start).thenAnswer((_) async {});
             when(playback.close).thenAnswer((_) async {});
             return playback;
+          },
+      createListenHostCubit:
+          createListenHostCubit ??
+          () {
+            final host = _MockListenHostCubit();
+            whenListen(
+              host,
+              const Stream<ListenHostState>.empty(),
+              initialState: const ListenHostState(),
+            );
+            when(host.start).thenAnswer((_) async {});
+            when(host.end).thenAnswer((_) async {});
+            return host;
+          },
+      createListenerCubit:
+          createListenerCubit ??
+          () {
+            final listener = _MockListenerCubit();
+            whenListen(
+              listener,
+              const Stream<ListenerState>.empty(),
+              initialState: const ListenerState(),
+            );
+            when(listener.leave).thenAnswer((_) async {});
+            return listener;
           },
       createLiveSessionCubit:
           createLiveSessionCubit ??

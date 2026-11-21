@@ -17,6 +17,10 @@ import 'package:marieum_app/features/history/presentation/cubit/history_cubit.da
 import 'package:marieum_app/features/history/presentation/pages/history_page.dart';
 import 'package:marieum_app/features/insight/presentation/cubit/insight_cubit.dart';
 import 'package:marieum_app/features/insight/presentation/pages/insight_page.dart';
+import 'package:marieum_app/features/listen/presentation/cubit/listen_host_cubit.dart';
+import 'package:marieum_app/features/listen/presentation/cubit/listener_cubit.dart';
+import 'package:marieum_app/features/listen/presentation/pages/listen_host_page.dart';
+import 'package:marieum_app/features/listen/presentation/pages/listener_page.dart';
 import 'package:marieum_app/features/privacy/presentation/pages/privacy_page.dart';
 import 'package:marieum_app/features/quick_phrase/presentation/bloc/quick_phrase_bloc.dart';
 import 'package:marieum_app/features/quick_phrase/presentation/pages/quick_phrase_management_page.dart';
@@ -36,6 +40,8 @@ GoRouter createAppRouter({
   required QuickPhraseBloc Function() createQuickPhraseBloc,
   required PlaybackCubit Function(PlaybackRequest) createPlaybackCubit,
   required LiveSessionCubit Function() createLiveSessionCubit,
+  required ListenHostCubit Function() createListenHostCubit,
+  required ListenerCubit Function() createListenerCubit,
   required UtteranceBloc Function() createUtteranceBloc,
   required HistoryCubit Function() createHistoryCubit,
   required InsightCubit Function() createInsightCubit,
@@ -51,6 +57,10 @@ GoRouter createAppRouter({
     redirect: (context, state) {
       final path = state.uri.path;
       final review = state.uri.queryParameters['review'] == '1';
+      // The other phone listens without a login, signed in or not.
+      if (path == AppRoutes.listener && authBloc.state.status is! AuthUnknown) {
+        return null;
+      }
       return switch (authBloc.state.status) {
         AuthUnknown() => path == AppRoutes.splash ? null : AppRoutes.splash,
         AuthUnauthenticated() =>
@@ -83,6 +93,10 @@ GoRouter createAppRouter({
       GoRoute(
         path: AppRoutes.signup,
         builder: (_, _) => SignupPage(repository: repository),
+      ),
+      GoRoute(
+        path: AppRoutes.listener,
+        builder: (_, _) => ListenerPage(createCubit: createListenerCubit),
       ),
       ShellRoute(
         navigatorKey: authenticatedKey,
@@ -128,6 +142,12 @@ GoRouter createAppRouter({
             parentNavigatorKey: authenticatedKey,
             builder: (context, state) =>
                 LiveSessionPage(createCubit: createLiveSessionCubit),
+          ),
+          GoRoute(
+            path: AppRoutes.listenHost,
+            parentNavigatorKey: authenticatedKey,
+            builder: (context, state) =>
+                ListenHostPage(createCubit: createListenHostCubit),
           ),
           GoRoute(
             path: AppRoutes.playback,
