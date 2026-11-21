@@ -7,7 +7,6 @@ import 'package:go_router/go_router.dart';
 import 'package:marieum_app/app/navigation/push_drawer.dart';
 import 'package:marieum_app/app/router/app_routes.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
-import 'package:marieum_app/core/ui/adaptive/adaptive_segmented_control.dart';
 import 'package:marieum_app/features/auth/domain/entities/auth_status.dart';
 import 'package:marieum_app/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:marieum_app/features/quick_phrase/domain/entities/quick_phrase.dart';
@@ -104,6 +103,11 @@ class _SpeakViewState extends State<SpeakView> {
             previous.level != current.level,
         builder: (context, utterance) {
           final locked = utterance.phase.locksScreen;
+          final route = switch (mode.mode) {
+            SpeakMode.precise => null,
+            SpeakMode.live => AppRoutes.live,
+            SpeakMode.listen => AppRoutes.listenHost,
+          };
           return SafeArea(
             bottom: false,
             child: LayoutBuilder(
@@ -126,24 +130,10 @@ class _SpeakViewState extends State<SpeakView> {
                             children: [
                               _Greeting(mode: mode.mode),
                               const SizedBox(height: 14),
-                              SizedBox(
-                                width: double.infinity,
-                                child: AdaptiveSegmentedControl<SpeakMode>(
-                                  value: mode.mode,
-                                  selectedBackground:
-                                      mode.mode == SpeakMode.live
-                                      ? AppTokens.warningSoft
-                                      : AppTokens.primarySoft,
-                                  onChanged: (next) => unawaited(
-                                    context.read<SpeakModeCubit>().select(next),
-                                  ),
-                                  children: {
-                                    for (final option in SpeakMode.values)
-                                      option: _ModeLabel(
-                                        mode: option,
-                                        selected: mode.mode == option,
-                                      ),
-                                  },
+                              _ModeSelector(
+                                selected: mode.mode,
+                                onChanged: (next) => unawaited(
+                                  context.read<SpeakModeCubit>().select(next),
                                 ),
                               ),
                             ],
@@ -156,10 +146,9 @@ class _SpeakViewState extends State<SpeakView> {
                               elapsed: utterance.elapsed,
                               level: utterance.level,
                               hold: mode.mode == SpeakMode.precise,
-                              onPressed: () => mode.mode == SpeakMode.live
-                                  ? unawaited(
-                                      context.push<void>(AppRoutes.live),
-                                    )
+                              opensListen: mode.mode == SpeakMode.listen,
+                              onPressed: () => route != null
+                                  ? unawaited(context.push<void>(route))
                                   : context.read<UtteranceBloc>().add(
                                       UtteranceButtonPressed(mode.mode),
                                     ),
@@ -276,7 +265,11 @@ class _Greeting extends StatelessWidget {
               ],
             ),
             Text(
-              mode == SpeakMode.live ? '말이 끝나면 바로 전달해요' : '오늘도 편하게 말씀해 보세요',
+              switch (mode) {
+                SpeakMode.precise => '오늘도 편하게 말씀해 보세요',
+                SpeakMode.live => '말이 끝나면 바로 전달해요',
+                SpeakMode.listen => '상대방 폰으로 말을 전해요',
+              },
               style: const TextStyle(fontSize: 13, color: AppTokens.ink2),
             ),
           ],
@@ -286,32 +279,110 @@ class _Greeting extends StatelessWidget {
   );
 }
 
-class _ModeLabel extends StatelessWidget {
-  const _ModeLabel({required this.mode, required this.selected});
-  final SpeakMode mode;
-  final bool selected;
+class _ModeSelector extends StatelessWidget {
+  const _ModeSelector({required this.selected, required this.onChanged});
+
+  final SpeakMode selected;
+  final ValueChanged<SpeakMode> onChanged;
+
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 6),
-    child: Column(
-      children: [
-        Text(
-          mode == SpeakMode.live ? '실시간 모드' : '정확도 모드',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w800,
-            color: selected
-                ? (mode == SpeakMode.live
-                      ? AppTokens.warning
-                      : AppTokens.onTonal)
-                : AppTokens.ink2,
-          ),
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      color: AppTokens.surfaceBlue,
+      border: Border.all(color: AppTokens.line),
+      borderRadius: BorderRadius.circular(16),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.all(4),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final option in SpeakMode.values)
+              Expanded(
+                child: _ModeSegment(
+                  mode: option,
+                  selected: option == selected,
+                  onTap: () => onChanged(option),
+                ),
+              ),
+          ],
         ),
-        Text(
-          mode == SpeakMode.live ? '말이 끝나면 바로 재생' : '후보를 보고 선택',
-          style: const TextStyle(fontSize: 10.5, color: AppTokens.ink2),
-        ),
-      ],
+      ),
     ),
   );
+}
+
+class _ModeSegment extends StatelessWidget {
+  const _ModeSegment({
+    required this.mode,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final SpeakMode mode;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, subtitle, background, foreground) = switch (mode) {
+      SpeakMode.precise => (
+        '정확도 모드',
+        '후보를 보고 선택',
+        AppTokens.primarySoft,
+        AppTokens.onTonal,
+      ),
+      SpeakMode.live => (
+        '실시간 모드',
+        '말이 끝나면 바로 재생',
+        AppTokens.warningSoft,
+        AppTokens.warning,
+      ),
+      SpeakMode.listen => (
+        '상대방 폰',
+        '상대 폰에서 재생',
+        AppTokens.lavender,
+        AppTokens.onTonal,
+      ),
+    };
+    const radius = BorderRadius.all(Radius.circular(12));
+    return Semantics(
+      button: true,
+      selected: selected,
+      inMutuallyExclusiveGroup: true,
+      child: Material(
+        color: selected ? background : Colors.transparent,
+        borderRadius: radius,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: radius,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 48),
+            alignment: Alignment.center,
+            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: selected ? foreground : AppTokens.ink2,
+                  ),
+                ),
+                Text(
+                  subtitle,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 11, color: AppTokens.ink2),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

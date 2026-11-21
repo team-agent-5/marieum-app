@@ -146,6 +146,32 @@ void main() {
     });
   });
 
+  testWidgets(
+    'all three modes fit on a narrow phone with large text',
+    (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(320, 680));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await pump(
+        tester,
+        const UtteranceState(phase: UtterancePhase.analyzing),
+        largeText: true,
+        settle: false,
+      );
+
+      for (final label in ['정확도 모드', '실시간 모드', '상대방 폰', '상대 폰에서 재생']) {
+        final bounds = tester.getRect(find.text(label));
+        expect(bounds.left, greaterThanOrEqualTo(0));
+        expect(bounds.right, lessThanOrEqualTo(320));
+      }
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.android,
+      TargetPlatform.iOS,
+    }),
+  );
+
   group('live mode', () {
     testWidgets('the main button opens the live session', (tester) async {
       final mode = _MockSpeakModeCubit();

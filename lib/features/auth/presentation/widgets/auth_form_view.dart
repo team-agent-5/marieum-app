@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:marieum_app/app/router/app_routes.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
 import 'package:marieum_app/core/ui/adaptive/adaptive_top_bar.dart';
 import 'package:marieum_app/features/auth/presentation/cubit/auth_form_state.dart';
@@ -154,7 +155,20 @@ class _AuthFormViewState extends State<AuthFormView> {
                       onPressed: _submit,
                       child: Text(signup ? '회원가입' : '로그인'),
                     ),
-                    if (!signup)
+                    if (!signup) ...[
+                      const SizedBox(height: 10),
+                      OutlinedButton.icon(
+                        onPressed: () => context.push<void>(AppRoutes.listener),
+                        icon: const Icon(Icons.hearing_rounded),
+                        label: const Text('상대방 말 듣기'),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(0, AppTokens.buttonHeight),
+                          textStyle: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -165,6 +179,7 @@ class _AuthFormViewState extends State<AuthFormView> {
                           ),
                         ],
                       ),
+                    ],
                   ],
                 ),
               );
