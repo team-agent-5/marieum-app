@@ -88,6 +88,7 @@ extension PumpApp on WidgetTester {
     QuickPhraseBloc Function()? createQuickPhraseBloc,
     PlaybackCubit Function(PlaybackRequest)? createPlaybackCubit,
     LiveSessionCubit Function()? createLiveSessionCubit,
+    LiveSessionCubit Function()? createRelaySessionCubit,
     ListenHostCubit Function()? createListenHostCubit,
     ListenerCubit Function()? createListenerCubit,
     UtteranceBloc Function()? createUtteranceBloc,
@@ -230,6 +231,22 @@ extension PumpApp on WidgetTester {
               const Stream<LiveSessionState>.empty(),
               initialState: const LiveSessionState(
                 status: LiveStatus.listening,
+              ),
+            );
+            when(live.start).thenAnswer((_) async {});
+            when(live.stop).thenAnswer((_) async {});
+            return live;
+          },
+      createRelaySessionCubit:
+          createRelaySessionCubit ??
+          () {
+            final live = _MockLiveSessionCubit();
+            whenListen(
+              live,
+              const Stream<LiveSessionState>.empty(),
+              initialState: const LiveSessionState(
+                status: LiveStatus.listening,
+                relay: true,
               ),
             );
             when(live.start).thenAnswer((_) async {});

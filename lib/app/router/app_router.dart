@@ -40,6 +40,7 @@ GoRouter createAppRouter({
   required QuickPhraseBloc Function() createQuickPhraseBloc,
   required PlaybackCubit Function(PlaybackRequest) createPlaybackCubit,
   required LiveSessionCubit Function() createLiveSessionCubit,
+  required LiveSessionCubit Function() createRelaySessionCubit,
   required ListenHostCubit Function() createListenHostCubit,
   required ListenerCubit Function() createListenerCubit,
   required UtteranceBloc Function() createUtteranceBloc,
@@ -142,6 +143,12 @@ GoRouter createAppRouter({
             parentNavigatorKey: authenticatedKey,
             builder: (context, state) =>
                 LiveSessionPage(createCubit: createLiveSessionCubit),
+          ),
+          GoRoute(
+            path: AppRoutes.liveRelay,
+            parentNavigatorKey: authenticatedKey,
+            builder: (context, state) =>
+                LiveSessionPage(createCubit: createRelaySessionCubit),
           ),
           GoRoute(
             path: AppRoutes.listenHost,

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -94,6 +95,42 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       expect(events, [isA<LiveFinal>(), isA<LiveSessionEnded>()]);
+      await conversation.close();
+    });
+
+    test('sends say and reads said, played and listener', () async {
+      final channel = _FakeChannel();
+      final conversation = connect(() => channel);
+      // Nothing goes out before the connection opens.
+      expect(
+        conversation.say(utteranceId: 'u0', text: '물', traceId: 't'),
+        isFalse,
+      );
+      channel.open();
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        conversation.say(utteranceId: 'u1', text: '물 주세요', traceId: 't'),
+        isTrue,
+      );
+      final say = jsonDecode(channel.sent.single! as String) as Map;
+      expect(say['type'], 'say');
+      expect(say['utterance_id'], 'u1');
+      expect(say['text'], '물 주세요');
+      expect(say['trace_id'], 't');
+      expect(DateTime.parse(say['client_ts'] as String).isUtc, isTrue);
+
+      channel
+        ..receive('{"type":"listener","state":"joined"}')
+        ..receive('{"type":"said","utterance_id":"u1","delivered":true}')
+        ..receive('{"type":"played","utterance_id":"u1"}')
+        ..receive('{"type":"listener","state":"left"}')
+        ..receive('{"type":"listener","state":"odd"}');
+      await Future<void>.delayed(Duration.zero);
+      expect(events, hasLength(4));
+      expect((events[0] as LiveListener).presence, ListenerPresence.joined);
+      expect((events[1] as LiveSaid).delivered, isTrue);
+      expect((events[2] as LivePlayed).utteranceId, 'u1');
+      expect((events[3] as LiveListener).presence, ListenerPresence.left);
       await conversation.close();
     });
 

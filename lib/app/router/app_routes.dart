@@ -10,6 +10,9 @@ abstract final class AppRoutes {
   /// The patient's code for the other phone.
   static const listenHost = '/speak/listen';
 
+  /// Live mode with sentences sent to the other phone.
+  static const liveRelay = '/speak/listen/live';
+
   /// The other phone, without a login.
   static const listener = '/listener';
   static const history = '/history';
