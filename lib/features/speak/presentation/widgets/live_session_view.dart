@@ -48,47 +48,72 @@ class LiveSessionView extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
             child: state.status == LiveStatus.failed
                 ? _Failed(state: state, onClose: onClose)
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                : Stack(
+                    fit: StackFit.expand,
                     children: [
-                      _Header(state: state),
-                      const SizedBox(height: 16),
-                      Expanded(child: _Transcript(state: state)),
-                      const SizedBox(height: 18),
-                      InputSignal(
-                        levels: state.levels,
-                        hearing: state.hearing,
-                        threshold: state.threshold,
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        state.hearing ? '목소리가 들려요' : '말씀하시면 바로 해석해요',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: AppTokens.ink2,
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      OutlinedButton.icon(
-                        key: const ValueKey('live_stop'),
-                        onPressed: onClose,
-                        icon: const Icon(Icons.close_rounded),
-                        label: const Text('그만하기'),
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size.fromHeight(
-                            AppTokens.buttonHeight,
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _Header(state: state),
+                          const SizedBox(height: 16),
+                          Expanded(child: _Transcript(state: state)),
+                          const SizedBox(height: 18),
+                          InputSignal(
+                            levels: state.levels,
+                            hearing: state.hearing,
+                            threshold: state.threshold,
                           ),
-                          foregroundColor: AppTokens.ink,
-                          backgroundColor: AppTokens.surface,
-                          side: const BorderSide(color: AppTokens.line),
-                          textStyle: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
+                          const SizedBox(height: 6),
+                          Text(
+                            state.hearing ? '목소리가 들려요' : '말씀하시면 바로 해석해요',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: AppTokens.ink2,
+                            ),
                           ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(
-                              AppTokens.buttonRadius,
+                          const SizedBox(height: 20),
+                          OutlinedButton.icon(
+                            key: const ValueKey('live_stop'),
+                            onPressed: onClose,
+                            icon: const Icon(Icons.close_rounded),
+                            label: Text(
+                              state.status == LiveStatus.finishing
+                                  ? '바로 끝내기'
+                                  : '그만하기',
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size.fromHeight(
+                                AppTokens.buttonHeight,
+                              ),
+                              foregroundColor: AppTokens.ink,
+                              backgroundColor: AppTokens.surface,
+                              side: const BorderSide(color: AppTokens.line),
+                              textStyle: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(
+                                  AppTokens.buttonRadius,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        child: IgnorePointer(
+                          child: Center(
+                            child: _WaitToast(
+                              message: state.status == LiveStatus.finishing
+                                  ? '하시던 말을 마저 전하고 있어요'
+                                  : state.micPaused
+                                  ? '읽어드리는 동안 잠시 기다려 주세요'
+                                  : null,
                             ),
                           ),
                         ),
@@ -100,6 +125,84 @@ class LiveSessionView extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Asks the patient to wait while words would not be heard: the
+/// microphone is off around the app's voice and after they stop.
+class _WaitToast extends StatelessWidget {
+  const _WaitToast({required this.message});
+
+  /// Null hides the toast.
+  final String? message;
+
+  @override
+  Widget build(BuildContext context) => AnimatedSwitcher(
+    duration: const Duration(milliseconds: 260),
+    reverseDuration: const Duration(milliseconds: 200),
+    switchInCurve: Curves.easeOutCubic,
+    switchOutCurve: Curves.easeInCubic,
+    transitionBuilder: (child, animation) => FadeTransition(
+      opacity: animation,
+      child: SlideTransition(
+        position: Tween(
+          begin: const Offset(0, -0.5),
+          end: Offset.zero,
+        ).animate(animation),
+        child: child,
+      ),
+    ),
+    child: message == null
+        ? const SizedBox.shrink()
+        : Semantics(
+            key: ValueKey(message),
+            liveRegion: true,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(12, 10, 18, 10),
+              decoration: BoxDecoration(
+                color: AppTokens.ink.withValues(alpha: 0.94),
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x2917233D),
+                    blurRadius: 24,
+                    offset: Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 28,
+                    height: 28,
+                    decoration: const BoxDecoration(
+                      color: AppTokens.primary,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.graphic_eq_rounded,
+                      size: 17,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Flexible(
+                    child: Text(
+                      message!,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        height: 1.3,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+  );
 }
 
 class _Header extends StatelessWidget {
@@ -134,6 +237,8 @@ class _Header extends StatelessWidget {
                       ? '준비하고 있어요'
                       : state.playing
                       ? '전달하고 있어요'
+                      : state.status == LiveStatus.finishing
+                      ? '마무리하고 있어요'
                       : '듣고 있어요',
                   style: AppTokens.title,
                 ),
@@ -294,12 +399,10 @@ class _HistoryState extends State<_History> {
       if (MediaQuery.disableAnimationsOf(context)) {
         _scroll.jumpTo(end);
       } else {
-        unawaited(
-          _scroll.animateTo(
-            end,
-            duration: const Duration(milliseconds: 280),
-            curve: Curves.easeOutCubic,
-          ),
+        _scroll.animateTo(
+          end,
+          duration: const Duration(milliseconds: 280),
+          curve: Curves.easeOutCubic,
         );
       }
     });
@@ -623,7 +726,7 @@ class _BlinkingDotState extends State<_BlinkingDot>
         ..stop()
         ..value = 0;
     } else if (!_controller.isAnimating) {
-      unawaited(_controller.repeat());
+      _controller.repeat();
     }
   }
 

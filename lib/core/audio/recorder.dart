@@ -151,8 +151,8 @@ class Recorder {
   }
 }
 
-/// Maps PCM16 little-endian RMS onto a 0..1 scale spanning -50 dBFS to 0.
-double pcmLevel(List<int> chunk) {
+/// Mean square of PCM16 little-endian samples, 0 to 1.
+double pcmPower(List<int> chunk) {
   final samples = chunk.length ~/ 2;
   if (samples == 0) return 0;
   final data = ByteData.sublistView(Uint8List.fromList(chunk));
@@ -161,23 +161,15 @@ double pcmLevel(List<int> chunk) {
     final sample = data.getInt16(i * 2, Endian.little) / 32768;
     sum += sample * sample;
   }
-  final rms = math.sqrt(sum / samples);
+  return sum / samples;
+}
+
+/// Maps PCM16 little-endian RMS onto a 0..1 scale spanning -50 dBFS to 0.
+double pcmLevel(List<int> chunk) {
+  final rms = math.sqrt(pcmPower(chunk));
   if (rms <= 0) return 0;
   final db = 20 * math.log(rms) / math.ln10;
   return ((db + 50) / 50).clamp(0, 1).toDouble();
-}
-
-final _noise = math.Random();
-
-/// PCM16 at about -70 dBFS, sent in place of sound held back. Recognizers
-/// tend to invent words in digital silence but not in faint room noise.
-Uint8List quietNoise(int bytes) {
-  final out = Uint8List(bytes);
-  final data = ByteData.sublistView(out);
-  for (var i = 0; i + 1 < bytes; i += 2) {
-    data.setInt16(i, _noise.nextInt(21) - 10, Endian.little);
-  }
-  return out;
 }
 
 class _Recording {
