@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
+import 'package:marieum_app/app/router/app_routes.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
 import 'package:marieum_app/features/listen/domain/entities/listen_session.dart';
 import 'package:marieum_app/features/listen/presentation/cubit/listen_host_cubit.dart';
@@ -36,6 +38,12 @@ class ListenHostView extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               const ListenStatusMessage('상대방 폰과 연결됐어요'),
+              const SizedBox(height: 20),
+              FilledButton(
+                style: ListenScreen.primaryButton,
+                onPressed: () => context.push<void>(AppRoutes.liveRelay),
+                child: const Text('말하기 시작'),
+              ),
             ],
             ListenHostPhase.codeExpired ||
             ListenHostPhase.left ||

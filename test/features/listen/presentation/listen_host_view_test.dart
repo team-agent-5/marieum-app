@@ -4,6 +4,8 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:marieum_app/app/router/app_routes.dart';
 import 'package:marieum_app/features/listen/domain/entities/listen_session.dart';
 import 'package:marieum_app/features/listen/presentation/cubit/listen_host_cubit.dart';
 import 'package:marieum_app/features/listen/presentation/pages/listen_host_page.dart';
@@ -97,6 +99,35 @@ void main() {
 
     expect(find.text('상대방 폰과 연결됐어요'), findsOneWidget);
     expect(find.byType(QrImageView), findsNothing);
+  });
+
+  testWidgets('connected can open the relay live route', (tester) async {
+    stubState(const ListenHostState(phase: ListenHostPhase.connected));
+    final router = GoRouter(
+      initialLocation: AppRoutes.listenHost,
+      routes: [
+        GoRoute(
+          path: AppRoutes.listenHost,
+          builder: (_, _) => BlocProvider<ListenHostCubit>.value(
+            value: cubit,
+            child: ListenHostView(onClose: () {}),
+          ),
+        ),
+        GoRoute(
+          path: AppRoutes.liveRelay,
+          builder: (_, _) => const Scaffold(body: Text('전달 화면')),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('말하기 시작'));
+    await tester.pumpAndSettle();
+
+    expect(router.state.uri.path, AppRoutes.liveRelay);
+    expect(find.text('전달 화면'), findsOneWidget);
   });
 
   testWidgets('expired code can be renewed', (tester) async {
