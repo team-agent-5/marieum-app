@@ -20,8 +20,16 @@ class LiveSessionPage extends StatelessWidget {
     },
     child: Builder(
       builder: (context) {
-        void close() {
-          unawaited(context.read<LiveSessionCubit>().stop());
+        Future<void> close() async {
+          final cubit = context.read<LiveSessionCubit>();
+          // A second press ends the wait for the last sentence; the first
+          // one then leaves.
+          if (cubit.state.status == LiveStatus.finishing) {
+            await cubit.stop();
+            return;
+          }
+          await cubit.finish();
+          if (!context.mounted) return;
           if (context.canPop()) {
             context.pop();
           } else {
@@ -32,9 +40,9 @@ class LiveSessionPage extends StatelessWidget {
         return PopScope(
           canPop: false,
           onPopInvokedWithResult: (didPop, _) {
-            if (!didPop) close();
+            if (!didPop) unawaited(close());
           },
-          child: LiveSessionView(onClose: close),
+          child: LiveSessionView(onClose: () => unawaited(close())),
         );
       },
     ),

@@ -75,22 +75,22 @@ void main() {
       );
     }
     test(
-      'automatically stops and truncates audio at ten seconds of samples',
+      'automatically stops and truncates audio at the length limit',
       () async {
         await recorder.start();
-        source.add(List.filled(320100, 7));
+        source.add(List.filled(480100, 7));
         final audio = await recorder.completed;
-        expect(audio.durationMs, 10000);
-        expect(audio.bytes.length, 320044);
-        expect(audio.bytes.sublist(44), List.filled(320000, 7));
+        expect(audio.durationMs, Recorder.maxDuration.inMilliseconds);
+        expect(audio.bytes.length, 480044);
+        expect(audio.bytes.sublist(44), List.filled(480000, 7));
         verify(() => engine.stop()).called(1);
       },
     );
     test(
-      'stops at the ten second deadline even when no samples arrive',
+      'stops at the length limit even when no samples arrive',
       () async {
         await recorder.start();
-        expect(timeout, const Duration(seconds: 10));
+        expect(timeout, Recorder.maxDuration);
         deadline();
         expect((await recorder.completed).durationMs, 0);
         verify(() => engine.stop()).called(1);

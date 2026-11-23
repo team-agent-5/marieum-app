@@ -67,9 +67,10 @@ void registerVoiceDependencies(
             : PlatformRecordingEngine(),
         permission: PlatformMicrophonePermission(),
         audioSession: dependencies<VoiceAudioSession>(),
-        // Android mutes what it sends while the app speaks, so it keeps the
-        // recognition source; the communication source that echo
-        // cancellation needs blurs weak consonants.
+        // Android keeps the recognition source: the communication source
+        // that echo cancellation needs suppressed quiet speech so hard that
+        // most sentences never reached the recognizer (tried 2026-11-20).
+        // The microphone is off while the app speaks, so there is no echo.
         echoCancel: platform == VoicePlatform.ios,
       ),
     )
