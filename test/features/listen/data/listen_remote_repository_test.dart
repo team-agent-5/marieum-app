@@ -88,25 +88,53 @@ void main() {
       },
     );
 
-    test('current reads the status, and no session as ended', () async {
-      adapter.respond = (_) async => _json({'status': 'connected'});
+    test('current reads the session, and no session as none', () async {
+      adapter.respond = (_) async => _json({
+        'listen_session_id': 'ls_1',
+        'state': 'waiting',
+        'join_code': 'K7Q2MX',
+        'join_expires_at': '2026-11-22T10:10:00Z',
+        'expires_at': '2026-11-22T12:00:00Z',
+      });
       final repository = RemoteListenHostRepository(client);
+      final waiting =
+          (await repository.current() as Success<ListenSnapshot>).value;
+      expect(waiting.status, ListenStatus.waiting);
+      expect(waiting.session?.joinCode, 'K7Q2MX');
+
+      adapter.respond = (_) async => _json({
+        'listen_session_id': 'ls_1',
+        'state': 'connected',
+        'join_code': null,
+        'join_expires_at': null,
+        'expires_at': '2026-11-22T12:00:00Z',
+      });
+      final connected =
+          (await repository.current() as Success<ListenSnapshot>).value;
+      expect(connected.status, ListenStatus.connected);
+      expect(connected.session, isNull);
+
+      adapter.respond = (_) async =>
+          _json({'error_code': 'LISTEN_NO_SESSION', 'message': 'x'}, 404);
       expect(
-        (await repository.current() as Success<ListenStatus>).value,
-        ListenStatus.connected,
+        (await repository.current() as Success<ListenSnapshot>).value,
+        const ListenSnapshot.none(),
       );
-      adapter.respond = (_) async => _json({'error_code': 'NOT_FOUND'}, 404);
-      expect(
-        (await repository.current() as Success<ListenStatus>).value,
-        ListenStatus.ended,
-      );
+    });
+
+    test('only LISTEN_NO_SESSION reads as no session', () async {
+      adapter.respond = (_) async =>
+          _json({'error_code': 'ROUTE_NOT_FOUND', 'message': 'x'}, 404);
+      final repository = RemoteListenHostRepository(client);
+      expect(await repository.current(), isA<FailureResult<ListenSnapshot>>());
+      expect(await repository.end(), isA<FailureResult<void>>());
     });
 
     test('end deletes the current session; already gone is fine', () async {
       adapter.respond = (options) async {
         expect(options.method, 'DELETE');
         expect(options.path, '/listen/sessions/current');
-        return _json({'error_code': 'NOT_FOUND'}, 404);
+        return _json({'error_code': 'LISTEN_NO_SESSION'}, 404);
       };
       expect(
         await RemoteListenHostRepository(client).end(),

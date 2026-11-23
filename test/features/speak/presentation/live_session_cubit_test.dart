@@ -8,6 +8,7 @@ import 'package:marieum_app/core/audio/mic_stream.dart';
 import 'package:marieum_app/core/error/failure.dart';
 import 'package:marieum_app/core/error/result.dart';
 import 'package:marieum_app/core/tts/tts_port.dart';
+import 'package:marieum_app/features/listen/domain/repositories/listen_repository.dart';
 import 'package:marieum_app/features/speak/domain/entities/utterance.dart';
 import 'package:marieum_app/features/speak/domain/repositories/live_stream.dart';
 import 'package:marieum_app/features/speak/domain/repositories/utterance_repository.dart';
@@ -19,6 +20,8 @@ class _MockMic extends Mock implements MicStream {}
 class _MockRepository extends Mock implements UtteranceRepository {}
 
 class _MockTts extends Mock implements PlaybackTtsPort {}
+
+class _MockListen extends Mock implements ListenHostRepository {}
 
 class _FakeConversation implements LiveConversation {
   final server = StreamController<LiveEvent>();
@@ -392,6 +395,56 @@ void main() {
     });
   });
 
+  group('LiveSessionCubit on this phone', () {
+    test('picks the other phone up again when it is still listening', () async {
+      final mic = _MockMic();
+      final input = StreamController<Uint8List>();
+      when(mic.start).thenAnswer((_) async => input.stream);
+      when(mic.stop).thenAnswer((_) async {});
+      when(mic.dispose).thenAnswer((_) async {});
+      final tts = _MockTts();
+      when(tts.stop).thenAnswer((_) async => const Success(null));
+      var now = DateTime(2026, 11, 22, 12);
+      final stream = _FakeStream(() => now);
+      final cubit = LiveSessionCubit(
+        mic: mic,
+        stream: stream,
+        repository: _MockRepository(),
+        tts: tts,
+        now: () => now,
+      );
+      await cubit.start();
+      now = now.add(LiveSessionCubit.warmUp);
+      input.add(Uint8List(3200));
+      await pumpEventQueue();
+      expect(cubit.state.relay, isFalse);
+      stream.conversation.server.add(
+        const LiveListener(ListenerPresence.joined),
+      );
+      await pumpEventQueue();
+      expect(cubit.state.relay, isTrue);
+      // Only the first news restores it; a later join is the patient's call.
+      await cubit.useThisPhone();
+      stream.conversation.server
+        ..add(const LiveListener(ListenerPresence.left))
+        ..add(const LiveListener(ListenerPresence.joined));
+      await pumpEventQueue();
+      expect(cubit.state.relay, isFalse);
+      await cubit.close();
+    });
+
+    test('estimates how long a sentence takes to say', () {
+      expect(
+        LiveSessionCubit.estimateSpeakingTime('물 좀 주세요'),
+        const Duration(milliseconds: 500 + 5 * 180),
+      );
+      expect(
+        LiveSessionCubit.estimateSpeakingTime('가' * 200),
+        const Duration(seconds: 15),
+      );
+    });
+  });
+
   group('LiveSessionCubit with the other phone', () {
     late _MockMic mic;
     late _MockRepository repository;
@@ -401,6 +454,7 @@ void main() {
     late DateTime now;
     late LiveSessionCubit cubit;
     late int ids;
+    late _MockListen listen;
 
     _FakeConversation server() => stream.conversation;
 
@@ -416,6 +470,8 @@ void main() {
       now = DateTime(2026, 11, 22, 12);
       stream = _FakeStream(() => now);
       ids = 0;
+      listen = _MockListen();
+      when(listen.end).thenAnswer((_) async => const Success(null));
       when(mic.start).thenAnswer((_) async {
         input = StreamController<Uint8List>();
         return input.stream;
@@ -443,7 +499,9 @@ void main() {
         repository: repository,
         tts: tts,
         relay: true,
+        listen: listen,
         newUtteranceId: () => 'u${ids++}',
+        speakingTime: (_) => Duration.zero,
         saidWait: const Duration(milliseconds: 50),
         now: () => now,
       );
@@ -454,6 +512,73 @@ void main() {
     });
 
     tearDown(() => cubit.close());
+
+    test('going back to this phone ends the listening session', () async {
+      await cubit.useThisPhone();
+      expect(cubit.state.relay, isFalse);
+      verify(listen.end).called(1);
+      await hear('물 주세요');
+      expect(server().said, isEmpty);
+      expect(cubit.state.segments.single.delivery, LiveDelivery.none);
+      cubit.useOtherPhone();
+      expect(cubit.state.relay, isTrue);
+    });
+
+    test('after going back to this phone the other is no longer counted '
+        'as listening, and a late join does not switch it back', () async {
+      await cubit.useThisPhone();
+      expect(cubit.state.listener, ListenerPresence.none);
+      server().server.add(const LiveListener(ListenerPresence.joined));
+      await pumpEventQueue();
+      expect(cubit.state.relay, isFalse);
+    });
+
+    test('a sentence read here after switching back waits for the other '
+        'phone to finish', () async {
+      final stream2 = _FakeStream(() => now);
+      final other = LiveSessionCubit(
+        mic: mic,
+        stream: stream2,
+        repository: repository,
+        tts: tts,
+        relay: true,
+        listen: listen,
+        newUtteranceId: () => 'v${ids++}',
+        speakingTime: (_) => const Duration(milliseconds: 150),
+        now: () => now,
+      );
+      await other.start();
+      now = now.add(LiveSessionCubit.warmUp);
+      input.add(Uint8List(3200));
+      await pumpEventQueue();
+      final server2 = stream2.conversation.server
+        ..add(LiveFinal(_heard('첫째', 0.9)));
+      await pumpEventQueue();
+      server2
+        ..add(const LiveSaid('v0', delivered: true))
+        ..add(const LivePlayed('v0'));
+      await pumpEventQueue();
+      await other.useThisPhone();
+      server2.add(LiveFinal(_heard('둘째', 0.9)));
+      await pumpEventQueue();
+      verifyNever(
+        () => tts.speakWithPlayback(
+          any(),
+          onStarted: any(named: 'onStarted'),
+          onEnded: any(named: 'onEnded'),
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      await pumpEventQueue();
+      verify(
+        () => tts.speakWithPlayback(
+          '둘째',
+          onStarted: any(named: 'onStarted'),
+          onEnded: any(named: 'onEnded'),
+        ),
+      ).called(1);
+      await other.close();
+    });
 
     test('follows whether the other phone is listening', () async {
       expect(cubit.state.relay, isTrue);

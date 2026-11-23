@@ -8,6 +8,9 @@ class RemoteListenHostRepository implements ListenHostRepository {
   RemoteListenHostRepository(this._client);
   final ApiClient _client;
 
+  /// The patient has no session; any other 404 is a real failure.
+  static const _noSession = 'LISTEN_NO_SESSION';
+
   @override
   Future<Result<ListenSession>> create() => _client.request(
     '/listen/sessions',
@@ -24,24 +27,34 @@ class RemoteListenHostRepository implements ListenHostRepository {
   );
 
   @override
-  Future<Result<ListenStatus>> current() async {
+  Future<Result<ListenSnapshot>> current() async {
     final result = await _client.request(
       '/listen/sessions/current',
       decode: (json) {
         final map = json! as Map<String, Object?>;
-        return switch (map['status'] ?? map['state']) {
-          'waiting' => ListenStatus.waiting,
-          'connected' => ListenStatus.connected,
-          'ended' => ListenStatus.ended,
-          _ => throw const FormatException('status'),
+        DateTime? time(String key) => switch (map[key]) {
+          final String value => DateTime.parse(value),
+          _ => null,
         };
+        return ListenSnapshot(
+          status: switch (map['state']) {
+            'waiting' => ListenStatus.waiting,
+            'connected' => ListenStatus.connected,
+            'ended' => ListenStatus.ended,
+            _ => throw const FormatException('state'),
+          },
+          id: map['listen_session_id'] as String?,
+          joinCode: map['join_code'] as String?,
+          joinExpiresAt: time('join_expires_at'),
+          expiresAt: time('expires_at'),
+        );
       },
     );
-    // No session at all reads as an ended one.
+    // No session at all: 404 LISTEN_NO_SESSION.
     if (result case FailureResult(
-      failure: ServerFailure(statusCode: 404),
+      failure: ServerFailure(statusCode: 404, errorCode: _noSession),
     )) {
-      return const Success(ListenStatus.ended);
+      return const Success(ListenSnapshot.none());
     }
     return result;
   }
@@ -55,7 +68,7 @@ class RemoteListenHostRepository implements ListenHostRepository {
     );
     // Already gone is what was wanted.
     if (result case FailureResult(
-      failure: ServerFailure(statusCode: 404),
+      failure: ServerFailure(statusCode: 404, errorCode: _noSession),
     )) {
       return const Success(null);
     }

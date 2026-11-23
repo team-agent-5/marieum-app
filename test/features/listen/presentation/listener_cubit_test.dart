@@ -43,6 +43,9 @@ class _FakeTts implements PlaybackTtsPort {
   final pending = <Completer<Result<void>>>[];
   bool stopped = false;
 
+  /// Whether playback starts; false for an engine that fails at once.
+  bool starts = true;
+
   @override
   Future<Result<void>> speakWithPlayback(
     String text, {
@@ -50,7 +53,7 @@ class _FakeTts implements PlaybackTtsPort {
     required void Function() onEnded,
   }) {
     spoken.add(text);
-    onStarted();
+    if (starts) onStarted();
     final done = Completer<Result<void>>();
     pending.add(done);
     return done.future;
@@ -148,20 +151,16 @@ void main() {
         expect(cubit.state.lines.map((line) => line.utteranceId), ['u1', 'u2']);
         expect(tts.spoken, ['물 주세요']);
         expect(cubit.state.speakingId, 'u1');
+        // Reported as soon as it starts, as the server relays it.
+        expect(channel.connection.playedIds, ['u1']);
 
         tts.pending.removeAt(0).complete(const Success(null));
         await pumpEventQueue();
-        expect(channel.connection.playedIds, ['u1']);
         expect(tts.spoken, ['물 주세요', '고마워요']);
+        expect(channel.connection.playedIds, ['u1', 'u2']);
 
-        tts.pending
-            .removeAt(0)
-            .complete(
-              const FailureResult(TtsFailure('x')),
-            );
+        tts.pending.removeAt(0).complete(const Success(null));
         await pumpEventQueue();
-        // Not said aloud, so not reported as played.
-        expect(channel.connection.playedIds, ['u1']);
         expect(cubit.state.speakingId, isNull);
         await cubit.close();
       },
@@ -209,6 +208,20 @@ void main() {
       await cubit.close();
     });
 
+    test('a line that never starts is not reported as played', () async {
+      tts.starts = false;
+      final cubit = build();
+      await cubit.join('K7Q2MX');
+      channel.connection.controller
+        ..add(const ListenerConnected())
+        ..add(const ListenerSay(utteranceId: 'u1', text: '물 주세요'));
+      await pumpEventQueue();
+      tts.pending.single.complete(const FailureResult(TtsFailure('x')));
+      await pumpEventQueue();
+      expect(channel.connection.playedIds, isEmpty);
+      await cubit.close();
+    });
+
     test('a line finished after the session ended is not reported on the '
         'next session', () async {
       final cubit = build();
@@ -222,7 +235,8 @@ void main() {
       await cubit.join('ABCDEF');
       tts.pending.single.complete(const Success(null));
       await pumpEventQueue();
-      expect(first.playedIds, isEmpty);
+      // Only its start went out, on the connection it came on.
+      expect(first.playedIds, ['u1']);
       expect(channel.connection.playedIds, isEmpty);
       await cubit.close();
     });

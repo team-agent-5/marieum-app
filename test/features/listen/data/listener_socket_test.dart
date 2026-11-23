@@ -168,6 +168,8 @@ void main() {
         socket.connect(pass).events.listen(events.add);
         channels[0].open();
         async.elapse(const Duration(seconds: 5));
+        channels[0].receive({'type': 'ping'});
+        async.flushMicrotasks();
         channels[0].hangUp(1006);
         async.flushMicrotasks();
         expect(events.last, isA<ListenerReconnecting>());
@@ -175,6 +177,48 @@ void main() {
         channels[1].open();
         async.flushMicrotasks();
         expect(events.last, isA<ListenerConnected>());
+      });
+    });
+
+    test('a connection that goes silent is dropped and opened again', () {
+      fakeAsync((async) {
+        final channels = <_FakeChannel>[];
+        final socket = ListenerSocket(
+          endpoint: Uri.parse('wss://x/ws/listen'),
+          connect: (_, _) {
+            final channel = _FakeChannel()..open();
+            channels.add(channel);
+            return channel;
+          },
+          now: () => DateTime(2026).add(async.elapsed),
+        );
+        final events = <ListenerEvent>[];
+        socket.connect(pass).events.listen(events.add);
+        async.flushMicrotasks();
+        channels[0].receive({'type': 'ping'});
+        async.elapse(const Duration(seconds: 39));
+        expect(channels, hasLength(1));
+        async.elapse(const Duration(seconds: 2));
+        expect(channels, hasLength(2));
+        expect(channels[0].closed, isTrue);
+        expect(events.whereType<ListenerReconnecting>(), isNotEmpty);
+      });
+    });
+
+    test('a connection that never says anything ends as lost', () {
+      fakeAsync((async) {
+        final socket = ListenerSocket(
+          endpoint: Uri.parse('wss://x/ws/listen'),
+          connect: (_, _) => _FakeChannel()..open(),
+          now: () => DateTime(2026).add(async.elapsed),
+        );
+        final events = <ListenerEvent>[];
+        socket.connect(pass).events.listen(events.add);
+        async.elapse(const Duration(seconds: 45));
+        expect(
+          (events.last as ListenerEnded).reason,
+          ListenEndReason.connectionLost,
+        );
       });
     });
 

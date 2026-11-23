@@ -18,6 +18,7 @@ import 'package:marieum_app/features/speak/domain/entities/utterance.dart';
 import 'package:marieum_app/features/speak/domain/repositories/live_stream.dart';
 import 'package:marieum_app/features/speak/domain/repositories/utterance_repository.dart';
 import 'package:uuid/uuid.dart';
+import 'package:marieum_app/features/listen/domain/repositories/listen_repository.dart';
 
 /// `finishing`: the patient stopped mid-sentence and its end is awaited.
 enum LiveStatus { starting, listening, finishing, failed, closed }
@@ -95,11 +96,11 @@ class LiveSessionState extends Equatable {
 
   final LiveStatus status;
 
-  /// Whether sentences go to the other phone instead of this one's speaker.
+  /// Where sentences are said aloud: false on this phone (the default),
+  /// true on the other phone, chosen on the live screen.
   final bool relay;
 
-  /// Whether the other phone is listening, once the server has said; only
-  /// with [relay].
+  /// Whether the other phone is listening, once the server has said.
   final ListenerPresence? listener;
 
   /// Recent input loudness, oldest first, 0 to 1.
@@ -133,6 +134,7 @@ class LiveSessionState extends Equatable {
     Duration? elapsed,
     List<LiveSegment>? segments,
     Failure? failure,
+    bool? relay,
     ListenerPresence? listener,
   }) => LiveSessionState(
     status: status ?? this.status,
@@ -144,7 +146,7 @@ class LiveSessionState extends Equatable {
     elapsed: elapsed ?? this.elapsed,
     segments: segments ?? this.segments,
     failure: failure ?? this.failure,
-    relay: relay,
+    relay: relay ?? this.relay,
     listener: listener ?? this.listener,
   );
 
@@ -178,11 +180,15 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
     LiveSound? sound,
     this._dump,
     bool relay = false,
+    ListenHostRepository? listen,
     String Function()? newUtteranceId,
+    Duration Function(String)? speakingTime,
     this.saidWait = const Duration(milliseconds: 1500),
     DateTime Function()? now,
   }) : _levels = segmenter ?? SpeechSegmenter(),
        _newUtteranceId = newUtteranceId ?? const Uuid().v4,
+       _listen = listen,
+       _speakingTime = speakingTime ?? estimateSpeakingTime,
        _sound = sound ?? LiveSound(),
        _now = now ?? DateTime.now,
        super(LiveSessionState(relay: relay));
@@ -308,6 +314,23 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
 
   final String Function() _newUtteranceId;
 
+  /// Ends the listening session when the patient goes back to this phone.
+  final ListenHostRepository? _listen;
+
+  final Duration Function(String) _speakingTime;
+
+  /// The patient picked this phone or the other on this screen.
+  bool _outputChosen = false;
+
+  /// About how long a phone takes to say [text]: half a second plus 180 ms
+  /// a syllable, at most 15 seconds.
+  static Duration estimateSpeakingTime(String text) => Duration(
+    milliseconds: (500 + text.replaceAll(RegExp(r'\s'), '').length * 180).clamp(
+      0,
+      15000,
+    ),
+  );
+
   /// How long the server's `said` is awaited before this phone reads the
   /// sentence itself.
   final Duration saidWait;
@@ -325,6 +348,9 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   /// Completes once the last sentence sent is queued here or played on the
   /// other phone; the next one read here waits for it.
   Future<void> _relayOrder = Future.value();
+
+  /// Whether every sentence in [_relayOrder] is through.
+  bool _relayOrderDone = true;
 
   Future<void> start() async {
     if (state.status != LiveStatus.starting) return;
@@ -441,10 +467,19 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
       case LiveSessionEnded():
         _lastSentenceIn();
       case LiveListener(:final presence):
-        if (state.relay) {
-          AppLog.speak('live listener ${presence.name}');
-          emit(state.copyWith(listener: presence));
-        }
+        AppLog.speak('live listener ${presence.name}');
+        final first = state.listener == null;
+        // A session still listening from before, e.g. after the app was
+        // closed, is picked up again without asking, unless the patient has
+        // already chosen where the sound goes.
+        final restore =
+            first && !_outputChosen && presence == ListenerPresence.joined;
+        emit(
+          state.copyWith(
+            listener: presence,
+            relay: restore ? true : null,
+          ),
+        );
       case LiveSaid(:final utteranceId, :final delivered):
         final said = _relays[utteranceId]?.said;
         if (said != null && !said.isCompleted) said.complete(delivered);
@@ -459,7 +494,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
         }
         _relays.remove(utteranceId);
         _deliver(relay.segmentId, LiveDelivery.played, attempt: utteranceId);
-        _echoEnds(relay);
+        _echoEnds(relay, started: true);
       case LiveFailed(:final failure, :final recovering):
         // Finishing goes on with what was read of the sentence so far.
         if (_lastSentence != null) {
@@ -586,8 +621,43 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
       _track(_relayOrSpeak(playback));
       return;
     }
+    if (!_relayOrderDone) {
+      // The other phone may still be saying an earlier sentence.
+      _track(_afterRelays(playback));
+      return;
+    }
     _pending.add(playback);
     unawaited(_drain());
+  }
+
+  /// Reads [phrase] here once the sentences before it are done, after the
+  /// patient switched back to this phone while the other was still busy.
+  Future<void> _afterRelays(_LivePlayback phrase) async {
+    final previous = _relayOrder;
+    final settled = Completer<void>();
+    _setOrder(settled);
+    try {
+      _deliver(phrase.id, LiveDelivery.none);
+      await previous;
+      if (_ended || isClosed) return;
+      _pending.add(phrase);
+      settled.complete();
+      await _drain();
+    } finally {
+      if (!settled.isCompleted) settled.complete();
+    }
+  }
+
+  /// Makes [settled] the last link of the order, tracking whether the whole
+  /// chain is through.
+  void _setOrder(Completer<void> settled) {
+    _relayOrder = settled.future;
+    _relayOrderDone = false;
+    unawaited(
+      settled.future.whenComplete(() {
+        if (identical(_relayOrder, settled.future)) _relayOrderDone = true;
+      }),
+    );
   }
 
   void _track(Future<void> relaying) {
@@ -608,7 +678,7 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
   Future<void> _relayOrSpeak(_LivePlayback phrase, {bool log = true}) async {
     final previous = _relayOrder;
     final settled = Completer<void>();
-    _relayOrder = settled.future;
+    _setOrder(settled);
     var deferred = false;
     try {
       final text = phrase.transcription.finalTranscript;
@@ -643,7 +713,10 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
         if (relay.played.isCompleted) {
           // Already said there; its voice may still be coming in.
           _relays.remove(id);
-          _spoken.add((text: relay.echo.text, until: _now().add(echoTail)));
+          _spoken.add((
+            text: relay.echo.text,
+            until: _now().add(_speakingTime(text)).add(echoTail),
+          ));
           _deliver(phrase.id, LiveDelivery.played, attempt: id);
         } else {
           _spoken.add(relay.echo);
@@ -666,11 +739,19 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
         deferred = true;
         // Later sentences read here wait for the earlier ones too, not
         // only for this one.
+        // `played` comes as the other phone starts; it is then given about
+        // as long as the sentence takes to say.
+        Future<void> said() async {
+          try {
+            await relay!.played.future.timeout(relayOrderLimit);
+          } on TimeoutException {
+            return;
+          }
+          if (!_ended) await Future<void>.delayed(_speakingTime(text));
+        }
+
         unawaited(
-          Future.wait([
-            previous,
-            relay.played.future.timeout(relayOrderLimit, onTimeout: () {}),
-          ]).whenComplete(settled.complete),
+          Future.wait([previous, said()]).whenComplete(settled.complete),
         );
         return;
       }
@@ -696,10 +777,17 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
 
   /// The other phone's voice stops counting as an echo shortly after it is
   /// done.
-  void _echoEnds(_Relay relay) {
+  /// [started]: the other phone has just begun to say it (`played`), so it
+  /// is kept out for about as long as it takes to say.
+  void _echoEnds(_Relay relay, {bool started = false}) {
     relay.echoLimit?.cancel();
     if (_spoken.remove(relay.echo)) {
-      _spoken.add((text: relay.echo.text, until: _now().add(echoTail)));
+      _spoken.add((
+        text: relay.echo.text,
+        until: _now()
+            .add(started ? _speakingTime(relay.echo.text) : Duration.zero)
+            .add(echoTail),
+      ));
     }
   }
 
@@ -897,6 +985,33 @@ class LiveSessionCubit extends Cubit<LiveSessionState> {
               ],
       ),
     );
+  }
+
+  /// Sends sentences to the other phone from now on; called once the other
+  /// phone has joined.
+  void useOtherPhone() {
+    _outputChosen = true;
+    if (_ended || isClosed || state.relay) return;
+    AppLog.speak('live relay on');
+    emit(state.copyWith(relay: true));
+  }
+
+  /// Says sentences on this phone again and ends the listening session, so
+  /// the other phone is told it is over.
+  Future<void> useThisPhone() async {
+    _outputChosen = true;
+    if (_ended || isClosed || !state.relay) return;
+    AppLog.speak('live relay off');
+    emit(state.copyWith(relay: false));
+    final result = await _listen?.end();
+    if (result case FailureResult(:final failure)) {
+      AppLog.speak('live listen session not ended ${failure.runtimeType}');
+      return;
+    }
+    // The server does not always say so; the other phone is gone either way.
+    if (!_ended && !isClosed) {
+      emit(state.copyWith(listener: ListenerPresence.none));
+    }
   }
 
   /// Speaks an earlier sentence again, e.g. when the listener missed it.

@@ -193,25 +193,26 @@ class ListenerCubit extends Cubit<ListenerState> {
   Future<void> _speakQueued() async {
     while (_queue.isNotEmpty && !isClosed) {
       final line = _queue.removeAt(0);
-      // Reported over the connection the line came on; once that one is
+      // Reported over the connection the line came on, as soon as it starts
+      // to play (the server relays it as `played`); once that connection is
       // closed, a later session never hears about it.
       final connection = _connection;
+      var started = false;
       final result = await _tts.speakWithPlayback(
         line.text,
         onStarted: () {
-          if (!isClosed) {
-            emit(state.copyWith(speakingId: () => line.utteranceId));
+          if (isClosed || started) return;
+          started = true;
+          emit(state.copyWith(speakingId: () => line.utteranceId));
+          if (identical(connection, _connection)) {
+            connection?.played(line.utteranceId);
           }
         },
         onEnded: () {},
       );
       if (isClosed) return;
       emit(state.copyWith(speakingId: () => null));
-      if (result is Success) {
-        if (identical(connection, _connection)) {
-          connection?.played(line.utteranceId);
-        }
-      } else {
+      if (result is! Success || !started) {
         AppLog.speak('listener line ${line.utteranceId} not spoken');
       }
     }

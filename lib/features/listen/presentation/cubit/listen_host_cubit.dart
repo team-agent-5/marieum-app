@@ -85,14 +85,48 @@ class ListenHostCubit extends Cubit<ListenHostState> {
   bool _ending = false;
   int _revision = 0;
 
+  /// Whether the patient's existing session was read.
+  bool _looked = false;
+
   /// The session being opened, so [end] can wait for it.
   Future<Result<ListenSession>>? _creating;
 
-  /// Opens the session; called once when the page opens.
-  Future<void> start() => _open();
+  /// Picks up the patient's session when there is one, e.g. after the app
+  /// was closed: its code again while it still joins, or connected. Opens a
+  /// new one otherwise. Called once when the page opens.
+  Future<void> start() async {
+    if (_ending || _creating != null) return;
+    final revision = ++_revision;
+    emit(ListenHostState(session: state.session));
+    final result = await _repository.current();
+    if (_ending || isClosed || revision != _revision) return;
+    if (result case FailureResult(:final failure)) {
+      // Opening a new one now could replace a session the other phone is
+      // still listening to.
+      emit(
+        state.copyWith(phase: ListenHostPhase.failed, failure: () => failure),
+      );
+      return;
+    }
+    _looked = true;
+    if (result case Success(value: final snapshot)) {
+      if (snapshot.status == ListenStatus.connected) {
+        emit(const ListenHostState(phase: ListenHostPhase.connected));
+        _follow();
+        return;
+      }
+      final session = snapshot.session;
+      if (session != null && session.joinExpiresAt.isAfter(_now())) {
+        _wait(session);
+        return;
+      }
+    }
+    await _open();
+  }
 
-  /// A new code after the old one ran out, or another try after a failure.
-  Future<void> renew() => _open();
+  /// A new code after the old one ran out, or another try after a failure;
+  /// one that failed to read the old session reads it again first.
+  Future<void> renew() => _looked ? _open() : start();
 
   /// Ends the session; the page closes afterwards. A session still being
   /// opened is waited for and then ended, with a single DELETE: the page
@@ -128,20 +162,29 @@ class ListenHostCubit extends Cubit<ListenHostState> {
     if (isClosed || revision != _revision) return;
     switch (result) {
       case Success(value: final session):
-        emit(
-          ListenHostState(
-            phase: ListenHostPhase.waiting,
-            session: session,
-            joinRemaining: _remaining(session),
-          ),
-        );
-        _clock = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
-        _poll = Timer.periodic(pollEvery, (_) => unawaited(_check()));
+        _wait(session);
       case FailureResult(:final failure):
         emit(
           state.copyWith(phase: ListenHostPhase.failed, failure: () => failure),
         );
     }
+  }
+
+  void _wait(ListenSession session) {
+    emit(
+      ListenHostState(
+        phase: ListenHostPhase.waiting,
+        session: session,
+        joinRemaining: _remaining(session),
+      ),
+    );
+    _follow();
+  }
+
+  void _follow() {
+    _stopTimers();
+    _clock = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
+    _poll = Timer.periodic(pollEvery, (_) => unawaited(_check()));
   }
 
   Duration _remaining(ListenSession session) {
@@ -172,8 +215,8 @@ class ListenHostCubit extends Cubit<ListenHostState> {
     try {
       final result = await _repository.current();
       if (isClosed || revision != _revision) return;
-      if (result case Success(value: final status)) {
-        switch (status) {
+      if (result case Success(value: final snapshot)) {
+        switch (snapshot.status) {
           case ListenStatus.connected:
             if (state.phase != ListenHostPhase.connected) {
               emit(state.copyWith(phase: ListenHostPhase.connected));

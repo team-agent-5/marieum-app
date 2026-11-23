@@ -22,6 +22,52 @@ class ListenSession extends Equatable {
   List<Object?> get props => [id, joinCode, joinExpiresAt, expiresAt];
 }
 
+/// The patient's session as the server has it now, to pick it up again
+/// after the app was closed. [session] is there while the code still joins,
+/// and [joinCode] is null once it was used or ran out.
+class ListenSnapshot extends Equatable {
+  const ListenSnapshot({
+    required this.status,
+    this.id,
+    this.joinCode,
+    this.joinExpiresAt,
+    this.expiresAt,
+  });
+
+  /// No session at all.
+  const ListenSnapshot.none() : this(status: ListenStatus.ended);
+
+  final ListenStatus status;
+  final String? id;
+  final String? joinCode;
+  final DateTime? joinExpiresAt;
+  final DateTime? expiresAt;
+
+  /// The session with its code, while the code still joins.
+  ListenSession? get session {
+    final id = this.id;
+    final code = joinCode;
+    final joinBy = joinExpiresAt;
+    final endBy = expiresAt;
+    if (status != ListenStatus.waiting ||
+        id == null ||
+        code == null ||
+        joinBy == null ||
+        endBy == null) {
+      return null;
+    }
+    return ListenSession(
+      id: id,
+      joinCode: code,
+      joinExpiresAt: joinBy,
+      expiresAt: endBy,
+    );
+  }
+
+  @override
+  List<Object?> get props => [status, id, joinCode, joinExpiresAt, expiresAt];
+}
+
 /// What the other phone gets for joining: a token for `/ws/listen` only.
 class ListenerPass extends Equatable {
   const ListenerPass({required this.token, required this.expiresAt});

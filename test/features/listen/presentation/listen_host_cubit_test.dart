@@ -29,7 +29,10 @@ void main() {
       ).thenAnswer((_) async => Success(session('K7Q2MX')));
       when(
         () => repository.current(),
-      ).thenAnswer((_) async => const Success(ListenStatus.waiting));
+      ).thenAnswer(
+        (_) async =>
+            const Success(ListenSnapshot(status: ListenStatus.waiting)),
+      );
       when(
         () => repository.end(),
       ).thenAnswer((_) async => const Success(null));
@@ -65,13 +68,19 @@ void main() {
         async.flushMicrotasks();
         when(
           () => repository.current(),
-        ).thenAnswer((_) async => const Success(ListenStatus.connected));
+        ).thenAnswer(
+          (_) async =>
+              const Success(ListenSnapshot(status: ListenStatus.connected)),
+        );
         async.elapse(const Duration(seconds: 2));
         expect(cubit.state.phase, ListenHostPhase.connected);
 
         when(
           () => repository.current(),
-        ).thenAnswer((_) async => const Success(ListenStatus.waiting));
+        ).thenAnswer(
+          (_) async =>
+              const Success(ListenSnapshot(status: ListenStatus.waiting)),
+        );
         async.elapse(const Duration(seconds: 2));
         expect(cubit.state.phase, ListenHostPhase.left);
 
@@ -112,7 +121,10 @@ void main() {
         async.flushMicrotasks();
         when(
           () => repository.current(),
-        ).thenAnswer((_) async => const Success(ListenStatus.ended));
+        ).thenAnswer(
+          (_) async =>
+              const Success(ListenSnapshot(status: ListenStatus.ended)),
+        );
         async.elapse(const Duration(seconds: 2));
         expect(cubit.state.phase, ListenHostPhase.ended);
         unawaited(cubit.close());
@@ -136,6 +148,7 @@ void main() {
       when(() => repository.create()).thenAnswer((_) => created.future);
       final cubit = ListenHostCubit(repository: repository);
       unawaited(cubit.start());
+      await pumpEventQueue();
       var ended = false;
       final ending = cubit.end().then((_) => ended = true);
       await pumpEventQueue();
@@ -153,6 +166,7 @@ void main() {
       when(() => repository.create()).thenAnswer((_) => created.future);
       final cubit = ListenHostCubit(repository: repository);
       unawaited(cubit.start());
+      await pumpEventQueue();
       final ending = cubit.end();
       created.complete(const FailureResult(NetworkFailure()));
       await ending;
@@ -170,6 +184,76 @@ void main() {
       await pumpEventQueue();
       verify(() => repository.create()).called(1);
       expect(cubit.state.phase, ListenHostPhase.waiting);
+      await cubit.close();
+    });
+
+    test('picks up a session still waiting with its code', () async {
+      when(() => repository.current()).thenAnswer(
+        (_) async => Success(
+          ListenSnapshot(
+            status: ListenStatus.waiting,
+            id: 'ls_old',
+            joinCode: 'ABCDEF',
+            joinExpiresAt: DateTime.now().add(const Duration(minutes: 5)),
+            expiresAt: DateTime.now().add(const Duration(hours: 1)),
+          ),
+        ),
+      );
+      final cubit = ListenHostCubit(repository: repository);
+      await cubit.start();
+      expect(cubit.state.phase, ListenHostPhase.waiting);
+      expect(cubit.state.session?.joinCode, 'ABCDEF');
+      verifyNever(() => repository.create());
+      await cubit.close();
+    });
+
+    test('picks up a session the other phone is still listening to', () async {
+      when(() => repository.current()).thenAnswer(
+        (_) async => const Success(
+          ListenSnapshot(status: ListenStatus.connected, id: 'ls_old'),
+        ),
+      );
+      final cubit = ListenHostCubit(repository: repository);
+      await cubit.start();
+      expect(cubit.state.phase, ListenHostPhase.connected);
+      verifyNever(() => repository.create());
+      await cubit.close();
+    });
+
+    test(
+      'opens a new one when the old code is used up or there is none',
+      () async {
+        when(() => repository.current()).thenAnswer(
+          (_) async => const Success(
+            ListenSnapshot(status: ListenStatus.waiting, id: 'ls_old'),
+          ),
+        );
+        final cubit = ListenHostCubit(repository: repository);
+        await cubit.start();
+        expect(cubit.state.session?.joinCode, 'K7Q2MX');
+        verify(() => repository.create()).called(1);
+        await cubit.close();
+      },
+    );
+
+    test('does not replace a session it could not read', () async {
+      when(
+        () => repository.current(),
+      ).thenAnswer((_) async => const FailureResult(NetworkFailure()));
+      final cubit = ListenHostCubit(repository: repository);
+      await cubit.start();
+      expect(cubit.state.phase, ListenHostPhase.failed);
+      verifyNever(() => repository.create());
+
+      // Trying again reads it first.
+      when(() => repository.current()).thenAnswer(
+        (_) async => const Success(
+          ListenSnapshot(status: ListenStatus.connected, id: 'ls_old'),
+        ),
+      );
+      await cubit.renew();
+      expect(cubit.state.phase, ListenHostPhase.connected);
+      verifyNever(() => repository.create());
       await cubit.close();
     });
 

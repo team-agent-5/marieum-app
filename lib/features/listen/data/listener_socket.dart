@@ -19,6 +19,7 @@ class ListenerSocket implements ListenerChannel {
       Duration(seconds: 4),
     ],
     this.offlineLimit = const Duration(seconds: 35),
+    this.silenceLimit = const Duration(seconds: 40),
     DateTime Function()? now,
   }) : _connect =
            connect ??
@@ -49,6 +50,10 @@ class ListenerSocket implements ListenerChannel {
   /// listener's place for 30 seconds after a drop.
   final Duration offlineLimit;
 
+  /// How long an open connection may go without a frame; the server pings
+  /// every 25 seconds.
+  final Duration silenceLimit;
+
   @override
   ListenerConnection connect(ListenerPass pass) {
     final connection = _Connection(this, pass);
@@ -65,9 +70,6 @@ class _Connection implements ListenerConnection {
   static const _tokenInvalid = 4001;
   static const _sessionOver = 4004;
   static const _otherDevice = 4009;
-
-  /// How long a connection must last to count as working again.
-  static const _stable = Duration(seconds: 2);
 
   final ListenerSocket _socket;
   final ListenerPass _pass;
@@ -100,14 +102,14 @@ class _Connection implements ListenerConnection {
     var failures = 0;
     var offlineSince = _socket._now();
     while (!_closed) {
-      DateTime? openedAt;
-      var outcome = await _attempt(onOpen: () => openedAt = _socket._now());
+      var heard = false;
+      var outcome = await _attempt(onHeard: () => heard = true);
       if (_closed || outcome == _Outcome.ended) return;
       if (outcome == _Outcome.dropped) {
-        // A connection that closes at once is no better than none, so it
-        // waits like one, rather than reconnecting in a tight loop.
-        final opened = openedAt;
-        if (opened != null && _socket._now().difference(opened) >= _stable) {
+        // Only a connection the server spoke on was working; one that closed
+        // or stayed silent is no better than none, so it waits like one
+        // rather than reconnecting in a tight loop.
+        if (heard) {
           failures = 0;
           offlineSince = _socket._now();
         } else {
@@ -130,7 +132,7 @@ class _Connection implements ListenerConnection {
     }
   }
 
-  Future<_Outcome> _attempt({required void Function() onOpen}) async {
+  Future<_Outcome> _attempt({required void Function() onHeard}) async {
     final endpoint = _socket.endpoint;
     final channel = _channel = _socket._connect(endpoint, [
       ListenerSocket.protocol,
@@ -147,22 +149,55 @@ class _Connection implements ListenerConnection {
       return _Outcome.ended;
     }
     AppLog.ws('open ${endpoint.path}');
-    onOpen();
     _emit(const ListenerConnected());
+    final done = Completer<void>();
+    void finish() {
+      if (!done.isCompleted) done.complete();
+    }
+
     var ended = false;
-    try {
-      await for (final message in channel.stream) {
+    var silent = false;
+    var heard = false;
+    Timer? silence;
+    // The server pings every 25 seconds; a connection that says nothing for
+    // longer is dead even if it was never closed.
+    void watch() {
+      silence?.cancel();
+      silence = Timer(_socket.silenceLimit, () {
+        silent = true;
+        finish();
+      });
+    }
+
+    watch();
+    final subscription = channel.stream.listen(
+      (message) {
+        watch();
+        if (!heard) {
+          heard = true;
+          onHeard();
+        }
         if (message is String && _receive(message)) {
           ended = true;
-          break;
+          finish();
         }
-        if (_closed) break;
-      }
-    } on Object catch (error) {
-      AppLog.ws('stream error (${error.runtimeType})');
-    }
-    if (ended || _closed) {
+        if (_closed) finish();
+      },
+      onError: (Object error) =>
+          AppLog.ws('stream error (${error.runtimeType})'),
+      onDone: finish,
+    );
+    await done.future;
+    silence?.cancel();
+    if (ended || _closed || silent) {
+      unawaited(subscription.cancel());
       unawaited(channel.sink.close());
+      if (silent && !_closed && !ended) {
+        AppLog.ws(
+          'silent for ${_socket.silenceLimit.inSeconds}s, reconnecting',
+        );
+        return _Outcome.dropped;
+      }
       return _Outcome.ended;
     }
     final code = channel.closeCode;

@@ -165,10 +165,7 @@ Future<GetIt> configureDependencies({
           haptics: dependencies<VoiceHaptics>(),
         ),
         createUtteranceBloc: dependencies.call<UtteranceBloc>,
-        createLiveSessionCubit: () =>
-            dependencies<LiveSessionCubit>(param1: false),
-        createRelaySessionCubit: () =>
-            dependencies<LiveSessionCubit>(param1: true),
+        createLiveSessionCubit: dependencies.call<LiveSessionCubit>,
         createListenHostCubit: dependencies.call<ListenHostCubit>,
         createListenerCubit: dependencies.call<ListenerCubit>,
       ),
@@ -221,9 +218,8 @@ Future<GetIt> configureDependencies({
       ),
     )
     ..registerLazySingleton<SpeechPaceTracker>(() => SpeechPaceTracker(prefs))
-    // The parameter is whether sentences go to the other phone.
-    ..registerFactoryParam<LiveSessionCubit, bool, void>(
-      (relay, _) => LiveSessionCubit(
+    ..registerFactory<LiveSessionCubit>(
+      () => LiveSessionCubit(
         mic: dependencies<MicStream>(),
         stream: dependencies<LiveStream>(),
         repository: dependencies<UtteranceRepository>(),
@@ -233,7 +229,7 @@ Future<GetIt> configureDependencies({
           level: defaultTargetPlatform == TargetPlatform.android,
         ),
         dump: LiveAudioDump.enabled ? LiveAudioDump() : null,
-        relay: relay,
+        listen: dependencies<ListenHostRepository>(),
       ),
     )
     ..registerFactory<UtteranceBloc>(

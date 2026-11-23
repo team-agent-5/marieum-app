@@ -15,8 +15,7 @@ class RemoteSpeakPreferencesDataSource implements SpeakPreferencesDataSource {
   Future<Result<void>> mirrorMode(SpeakMode mode) => _client.request(
     '/patient/preferences',
     method: 'PATCH',
-    // The other phone's mode streams like live mode on this phone.
-    data: {'realtime_mode': mode != SpeakMode.precise},
+    data: {'realtime_mode': mode == SpeakMode.live},
     decode: (_) {},
   );
 }

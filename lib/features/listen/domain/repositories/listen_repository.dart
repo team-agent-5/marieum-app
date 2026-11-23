@@ -6,9 +6,9 @@ abstract interface class ListenHostRepository {
   /// Opens a session; one the patient already had is ended.
   Future<Result<ListenSession>> create();
 
-  /// The status of the patient's session; [ListenStatus.ended] when there is
-  /// none.
-  Future<Result<ListenStatus>> current();
+  /// The patient's session; [ListenSnapshot.none] when there is none
+  /// (`404 LISTEN_NO_SESSION`).
+  Future<Result<ListenSnapshot>> current();
 
   /// Ends the session; the other phone is told.
   Future<Result<void>> end();
