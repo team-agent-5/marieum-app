@@ -3,8 +3,11 @@ import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
+import 'package:marieum_app/app/router/app_routes.dart';
 import 'package:marieum_app/core/audio/speech_segmenter.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
+import 'package:marieum_app/core/ui/adaptive/adaptive_segmented_control.dart';
 import 'package:marieum_app/core/ui/adaptive/adaptive_top_bar.dart';
 import 'package:marieum_app/features/speak/domain/repositories/live_stream.dart';
 import 'package:marieum_app/features/speak/presentation/cubit/live_session_cubit.dart';
@@ -23,9 +26,7 @@ class LiveSessionView extends StatelessWidget {
     return Scaffold(
       backgroundColor: AppTokens.bg,
       appBar: AdaptiveTopBar(
-        title: context.select((LiveSessionCubit cubit) => cubit.state.relay)
-            ? '상대방 폰'
-            : '내 목소리로 말하기',
+        title: '내 목소리로 말하기',
         leading: ios
             ? CupertinoButton(
                 padding: EdgeInsets.zero,
@@ -58,6 +59,11 @@ class LiveSessionView extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           _Header(state: state),
+                          const SizedBox(height: 12),
+                          _SoundDestination(
+                            relay: state.relay,
+                            enabled: state.status == LiveStatus.listening,
+                          ),
                           if (state.relay) ...[
                             const SizedBox(height: 12),
                             _RelayBanner(presence: state.listener),
@@ -69,7 +75,6 @@ class LiveSessionView extends StatelessWidget {
                             levels: state.levels,
                             hearing: state.hearing,
                             threshold: state.threshold,
-                            fitToWidth: state.relay,
                           ),
                           const SizedBox(height: 6),
                           Text(
@@ -230,15 +235,14 @@ class _Header extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (!state.relay)
-                const Text(
-                  '실시간 모드',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    color: AppTokens.warning,
-                  ),
+              const Text(
+                '실시간 모드',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: AppTokens.warning,
                 ),
+              ),
               Semantics(
                 header: true,
                 child: Text(
@@ -280,6 +284,80 @@ class _Header extends StatelessWidget {
   }
 }
 
+class _SoundDestination extends StatefulWidget {
+  const _SoundDestination({required this.relay, required this.enabled});
+
+  final bool relay;
+  final bool enabled;
+
+  @override
+  State<_SoundDestination> createState() => _SoundDestinationState();
+}
+
+class _SoundDestinationState extends State<_SoundDestination> {
+  bool _changing = false;
+
+  Future<void> _select(bool relay) async {
+    if (!widget.enabled || _changing || relay == widget.relay) return;
+    final cubit = context.read<LiveSessionCubit>();
+    if (relay && cubit.state.listener == ListenerPresence.joined) {
+      cubit.useOtherPhone();
+      return;
+    }
+
+    setState(() => _changing = true);
+    try {
+      if (relay) {
+        final confirmed = await context.push<bool>(AppRoutes.listenHost);
+        if (mounted && confirmed == true) cubit.useOtherPhone();
+      } else {
+        await cubit.useThisPhone();
+      }
+    } finally {
+      if (mounted) setState(() => _changing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final disabled = !widget.enabled || _changing;
+    return Semantics(
+      label: '소리 나는 곳',
+      container: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const ExcludeSemantics(
+            child: Text(
+              '소리 나는 곳',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                color: AppTokens.ink,
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          ExcludeFocus(
+            excluding: disabled,
+            child: AbsorbPointer(
+              absorbing: disabled,
+              child: AdaptiveSegmentedControl<bool>(
+                value: widget.relay,
+                onChanged: (relay) => unawaited(_select(relay)),
+                children: const {
+                  false: Text('내 폰', textAlign: TextAlign.center),
+                  true: Text('상대방 폰', textAlign: TextAlign.center),
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _RelayBanner extends StatelessWidget {
   const _RelayBanner({required this.presence});
 
@@ -291,7 +369,7 @@ class _RelayBanner extends StatelessWidget {
       null => ('상대방 폰을 확인하고 있어요', AppTokens.surfaceBlue),
       ListenerPresence.joined => ('상대방 폰으로 전하고 있어요', AppTokens.successSoft),
       ListenerPresence.left || ListenerPresence.none => (
-        '상대방 폰이 연결되지 않아 이 폰에서 읽어요',
+        '상대방 폰 연결이 끊겨 이 폰에서 읽어요',
         AppTokens.warningSoft,
       ),
     };
@@ -718,9 +796,9 @@ class _Current extends StatelessWidget {
 String? _deliveryLabel(LiveDelivery delivery) => switch (delivery) {
   LiveDelivery.none => null,
   LiveDelivery.sending => '보내는 중',
-  LiveDelivery.delivered => '상대방 폰에서 읽는 중',
-  LiveDelivery.played => '상대방 폰에서 읽음',
-  LiveDelivery.local => '이 폰에서 읽음',
+  LiveDelivery.delivered => '상대방 폰에 보냈어요',
+  LiveDelivery.played => '상대방 폰에서 읽고 있어요',
+  LiveDelivery.local => '이 폰에서 읽었어요',
 };
 
 class _SentenceWithBadge extends StatelessWidget {
@@ -769,14 +847,12 @@ class InputSignal extends StatelessWidget {
     required this.levels,
     required this.hearing,
     this.threshold = SpeechSegmenter.defaultThreshold,
-    this.fitToWidth = false,
     super.key,
   });
 
   final List<double> levels;
   final bool hearing;
   final double threshold;
-  final bool fitToWidth;
 
   static const height = 64.0;
 
@@ -810,9 +886,7 @@ class InputSignal extends StatelessWidget {
       child: SizedBox(
         key: const ValueKey('live_signal'),
         height: height,
-        child: fitToWidth
-            ? FittedBox(fit: BoxFit.scaleDown, child: bars)
-            : bars,
+        child: FittedBox(fit: BoxFit.scaleDown, child: bars),
       ),
     );
   }

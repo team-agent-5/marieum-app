@@ -35,7 +35,7 @@ void main() {
       MaterialApp(
         home: BlocProvider<ListenHostCubit>.value(
           value: cubit,
-          child: ListenHostView(onClose: () {}),
+          child: ListenHostView(onClose: () {}, onBack: () {}),
         ),
       ),
     );
@@ -101,34 +101,60 @@ void main() {
     expect(find.byType(QrImageView), findsNothing);
   });
 
-  testWidgets('connected can open the relay live route', (tester) async {
-    stubState(const ListenHostState(phase: ListenHostPhase.connected));
-    final router = GoRouter(
-      initialLocation: AppRoutes.listenHost,
-      routes: [
-        GoRoute(
-          path: AppRoutes.listenHost,
-          builder: (_, _) => BlocProvider<ListenHostCubit>.value(
-            value: cubit,
-            child: ListenHostView(onClose: () {}),
-          ),
-        ),
-        GoRoute(
-          path: AppRoutes.liveRelay,
-          builder: (_, _) => const Scaffold(body: Text('전달 화면')),
-        ),
-      ],
+  for (final (action, label) in [
+    ('primary button', '돌아가서 말하기'),
+    ('toolbar back', '뒤로'),
+    ('system back', null),
+  ]) {
+    testWidgets(
+      '$action keeps a recovered connection and returns true',
+      (
+        tester,
+      ) async {
+        stubState(const ListenHostState(phase: ListenHostPhase.connected));
+        when(cubit.start).thenAnswer((_) async {});
+        bool? result;
+        final router = GoRouter(
+          initialLocation: AppRoutes.live,
+          routes: [
+            GoRoute(
+              path: AppRoutes.live,
+              builder: (context, _) => Scaffold(
+                body: TextButton(
+                  onPressed: () async {
+                    result = await context.push<bool>(AppRoutes.listenHost);
+                  },
+                  child: const Text('연결 화면 열기'),
+                ),
+              ),
+            ),
+            GoRoute(
+              path: AppRoutes.listenHost,
+              builder: (_, _) => ListenHostPage(createCubit: () => cubit),
+            ),
+          ],
+        );
+        addTearDown(router.dispose);
+        await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+        await tester.tap(find.text('연결 화면 열기'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('상대방 폰과 연결됐어요'), findsOneWidget);
+        if (label == null) {
+          await tester.binding.handlePopRoute();
+        } else {
+          await tester.tap(
+            label == '뒤로' ? find.byTooltip(label) : find.text(label),
+          );
+        }
+        await tester.pumpAndSettle();
+
+        expect(router.state.uri.path, AppRoutes.live);
+        expect(result, isTrue);
+        verifyNever(cubit.end);
+      },
     );
-    addTearDown(router.dispose);
-    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('말하기 시작'));
-    await tester.pumpAndSettle();
-
-    expect(router.state.uri.path, AppRoutes.liveRelay);
-    expect(find.text('전달 화면'), findsOneWidget);
-  });
+  }
 
   testWidgets('expired code can be renewed', (tester) async {
     when(cubit.renew).thenAnswer((_) async {});
@@ -155,40 +181,53 @@ void main() {
     verify(cubit.renew).called(1);
   });
 
-  testWidgets('back waits for the session to end before popping', (
-    tester,
-  ) async {
-    final ended = Completer<void>();
-    stubState(const ListenHostState(phase: ListenHostPhase.connected));
-    when(cubit.start).thenAnswer((_) async {});
-    when(cubit.end).thenAnswer((_) => ended.future);
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Builder(
-          builder: (context) => TextButton(
-            onPressed: () async {
-              await Navigator.of(context).push<void>(
-                MaterialPageRoute(
-                  builder: (_) => ListenHostPage(createCubit: () => cubit),
-                ),
-              );
-            },
-            child: const Text('열기'),
+  for (final (phase, action, disconnect) in [
+    (ListenHostPhase.codeExpired, 'back before connecting', false),
+    (ListenHostPhase.connected, 'disconnect after connecting', true),
+  ]) {
+    testWidgets('$action waits for end and returns no confirmation', (
+      tester,
+    ) async {
+      final ended = Completer<void>();
+      stubState(ListenHostState(phase: phase));
+      when(cubit.start).thenAnswer((_) async {});
+      when(cubit.end).thenAnswer((_) => ended.future);
+      final result = Completer<bool?>();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                result.complete(
+                  await Navigator.of(context).push<bool>(
+                    MaterialPageRoute(
+                      builder: (_) => ListenHostPage(createCubit: () => cubit),
+                    ),
+                  ),
+                );
+              },
+              child: const Text('열기'),
+            ),
           ),
         ),
-      ),
-    );
-    await tester.tap(find.text('열기'));
-    await tester.pumpAndSettle();
-    verify(cubit.start).called(1);
+      );
+      await tester.tap(find.text('열기'));
+      await tester.pumpAndSettle();
+      verify(cubit.start).called(1);
 
-    await tester.binding.handlePopRoute();
-    await tester.pumpAndSettle();
-    verify(cubit.end).called(1);
-    expect(find.byType(ListenHostPage), findsOneWidget);
+      if (disconnect) {
+        await tester.tap(find.text('연결 끊기'));
+      } else {
+        await tester.binding.handlePopRoute();
+      }
+      await tester.pumpAndSettle();
+      verify(cubit.end).called(1);
+      expect(find.byType(ListenHostPage), findsOneWidget);
 
-    ended.complete();
-    await tester.pumpAndSettle();
-    expect(find.byType(ListenHostPage), findsNothing);
-  });
+      ended.complete();
+      await tester.pumpAndSettle();
+      expect(find.byType(ListenHostPage), findsNothing);
+      expect(await result.future, isNull);
+    });
+  }
 }

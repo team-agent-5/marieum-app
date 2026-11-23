@@ -8,12 +8,14 @@ class ListenScreen extends StatelessWidget {
     required this.closeLabel,
     required this.onClose,
     required this.children,
+    this.onBack,
     super.key,
   });
 
   final String title;
   final String closeLabel;
   final VoidCallback onClose;
+  final VoidCallback? onBack;
   final List<Widget> children;
 
   static final ButtonStyle primaryButton = FilledButton.styleFrom(
@@ -40,7 +42,7 @@ class ListenScreen extends StatelessWidget {
       leading: IconButton(
         tooltip: '뒤로',
         icon: const Icon(Icons.arrow_back_rounded),
-        onPressed: onClose,
+        onPressed: onBack ?? onClose,
       ),
     ),
     body: SafeArea(

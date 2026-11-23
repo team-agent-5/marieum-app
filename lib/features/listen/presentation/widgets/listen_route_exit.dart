@@ -8,12 +8,16 @@ class ListenRouteExit extends StatefulWidget {
     required this.cleanup,
     required this.fallback,
     required this.builder,
+    this.onBack,
     super.key,
   });
 
   final Future<void> Function() cleanup;
   final String fallback;
-  final Widget Function(VoidCallback onClose) builder;
+
+  /// Returns true when back was handled without running [cleanup].
+  final bool Function()? onBack;
+  final Widget Function(VoidCallback onBack, VoidCallback onClose) builder;
 
   @override
   State<ListenRouteExit> createState() => _ListenRouteExitState();
@@ -41,12 +45,20 @@ class _ListenRouteExitState extends State<ListenRouteExit> {
     }
   }
 
+  void _back() {
+    if (_closing) return;
+    if (widget.onBack?.call() != true) unawaited(_close());
+  }
+
   @override
   Widget build(BuildContext context) => PopScope(
     canPop: false,
     onPopInvokedWithResult: (didPop, _) {
-      if (!didPop) unawaited(_close());
+      if (!didPop) _back();
     },
-    child: AbsorbPointer(absorbing: _closing, child: widget.builder(_close)),
+    child: AbsorbPointer(
+      absorbing: _closing,
+      child: widget.builder(_back, _close),
+    ),
   );
 }

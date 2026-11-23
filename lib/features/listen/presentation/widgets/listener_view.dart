@@ -71,11 +71,11 @@ class _ListenerViewState extends State<ListenerView> {
               ],
               ListenerPhase.ended => [
                 ListenStatusMessage(switch (state.endReason) {
-                  ListenEndReason.patientLeft => '환자가 연결을 끊었어요',
-                  ListenEndReason.expired => '연결 시간이 끝났어요',
+                  ListenEndReason.patientLeft => '환자가 대화를 끝냈어요',
+                  ListenEndReason.expired => '대화가 끝났어요',
                   ListenEndReason.revoked => '환자가 새 연결을 만들었어요',
-                  ListenEndReason.tokenInvalid => '연결이 만료됐어요. 새 코드를 받아 주세요.',
-                  ListenEndReason.otherDevice => '이미 다른 폰이 연결되어 있어요',
+                  ListenEndReason.tokenInvalid => '연결 정보가 올바르지 않아요',
+                  ListenEndReason.otherDevice => '이미 다른 기기에서 듣고 있어요',
                   ListenEndReason.connectionLost => '연결이 끊겼어요. 다시 연결해 주세요.',
                   null => '연결이 끝났어요',
                 }),

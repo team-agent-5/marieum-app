@@ -17,7 +17,7 @@ class ListenerPage extends StatelessWidget {
       builder: (context) => ListenRouteExit(
         cleanup: context.read<ListenerCubit>().leave,
         fallback: AppRoutes.login,
-        builder: (onClose) => ListenerView(onClose: onClose),
+        builder: (_, onClose) => ListenerView(onClose: onClose),
       ),
     ),
   );

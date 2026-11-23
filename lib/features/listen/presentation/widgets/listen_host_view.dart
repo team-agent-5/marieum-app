@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:go_router/go_router.dart';
-import 'package:marieum_app/app/router/app_routes.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
 import 'package:marieum_app/features/listen/domain/entities/listen_session.dart';
 import 'package:marieum_app/features/listen/presentation/cubit/listen_host_cubit.dart';
@@ -9,9 +7,14 @@ import 'package:marieum_app/features/listen/presentation/widgets/listen_screen.d
 import 'package:qr_flutter/qr_flutter.dart';
 
 class ListenHostView extends StatelessWidget {
-  const ListenHostView({required this.onClose, super.key});
+  const ListenHostView({
+    required this.onClose,
+    required this.onBack,
+    super.key,
+  });
 
   final VoidCallback onClose;
+  final VoidCallback onBack;
 
   @override
   Widget build(BuildContext context) =>
@@ -20,6 +23,7 @@ class ListenHostView extends StatelessWidget {
           title: '상대방 폰',
           closeLabel: state.phase == ListenHostPhase.ended ? '닫기' : '연결 끊기',
           onClose: onClose,
+          onBack: onBack,
           children: switch (state.phase) {
             ListenHostPhase.creating => [
               const ListenStatusMessage('연결을 준비하고 있어요', loading: true),
@@ -41,8 +45,8 @@ class ListenHostView extends StatelessWidget {
               const SizedBox(height: 20),
               FilledButton(
                 style: ListenScreen.primaryButton,
-                onPressed: () => context.push<void>(AppRoutes.liveRelay),
-                child: const Text('말하기 시작'),
+                onPressed: onBack,
+                child: const Text('돌아가서 말하기'),
               ),
             ],
             ListenHostPhase.codeExpired ||

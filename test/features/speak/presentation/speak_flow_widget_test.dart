@@ -147,7 +147,7 @@ void main() {
   });
 
   testWidgets(
-    'all three modes fit on a narrow phone with large text',
+    'both modes fit on a narrow phone with large text',
     (
       tester,
     ) async {
@@ -160,7 +160,8 @@ void main() {
         settle: false,
       );
 
-      for (final label in ['정확도 모드', '실시간 모드', '상대방 폰', '상대 폰에서 재생']) {
+      expect(find.text('상대방 폰'), findsNothing);
+      for (final label in ['정확도 모드', '실시간 모드']) {
         final bounds = tester.getRect(find.text(label));
         expect(bounds.left, greaterThanOrEqualTo(0));
         expect(bounds.right, lessThanOrEqualTo(320));

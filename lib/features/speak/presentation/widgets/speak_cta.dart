@@ -18,7 +18,6 @@ class SpeakCta extends StatefulWidget {
     required this.onPressed,
     required this.onHoldStart,
     required this.onHoldEnd,
-    this.opensListen = false,
     super.key,
   });
 
@@ -26,7 +25,6 @@ class SpeakCta extends StatefulWidget {
   final Duration elapsed;
   final double level;
   final bool hold;
-  final bool opensListen;
   final VoidCallback onPressed;
   final VoidCallback onHoldStart;
   final VoidCallback onHoldEnd;
@@ -103,14 +101,12 @@ class _SpeakCtaState extends State<SpeakCta>
     UtterancePhase.recording =>
       '녹음 중 ${widget.elapsed.inSeconds}초. 말씀이 끝나면 다시 눌러 주세요',
     UtterancePhase.analyzing => '분석하고 있어요',
-    _ when widget.opensListen => '상대방 폰 연결하기',
     _ => '말하기. 누르면 녹음을 시작해요',
   };
 
   String get _hint => switch (widget.phase) {
     UtterancePhase.recording => '손을 떼면 끝나요',
     UtterancePhase.analyzing => '분석하고 있어요',
-    _ when widget.opensListen => '눌러서 상대방 폰 연결하기',
     _ when widget.hold => '누르고 있는 동안 말씀하세요',
     _ => '눌러서 말하기',
   };
@@ -261,18 +257,14 @@ class _SpeakCtaState extends State<SpeakCta>
         ],
       );
     }
-    return Column(
+    return const Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Icon(
-          widget.opensListen ? Icons.phonelink_ring_rounded : Icons.mic_rounded,
-          color: AppTokens.surface,
-          size: 34,
-        ),
-        const SizedBox(height: 4),
+        Icon(Icons.mic_rounded, color: AppTokens.surface, size: 34),
+        SizedBox(height: 4),
         Text(
-          widget.opensListen ? '연결하기' : '말하기',
-          style: const TextStyle(
+          '말하기',
+          style: TextStyle(
             fontSize: 29,
             fontWeight: FontWeight.w900,
             color: AppTokens.surface,

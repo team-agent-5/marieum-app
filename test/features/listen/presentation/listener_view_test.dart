@@ -74,6 +74,23 @@ void main() {
     expect(find.text('그만 듣기'), findsOneWidget);
   });
 
+  for (final (reason, message) in const [
+    (ListenEndReason.tokenInvalid, '연결 정보가 올바르지 않아요'),
+    (ListenEndReason.expired, '대화가 끝났어요'),
+    (ListenEndReason.otherDevice, '이미 다른 기기에서 듣고 있어요'),
+    (ListenEndReason.revoked, '환자가 새 연결을 만들었어요'),
+    (ListenEndReason.connectionLost, '연결이 끊겼어요. 다시 연결해 주세요.'),
+  ]) {
+    testWidgets('shows the closing message for ${reason.name}', (tester) async {
+      await pump(
+        tester,
+        ListenerState(phase: ListenerPhase.ended, endReason: reason),
+      );
+
+      expect(find.text(message), findsOneWidget);
+    });
+  }
+
   testWidgets('shows why the session ended and can accept another code', (
     tester,
   ) async {
@@ -86,11 +103,11 @@ void main() {
       ),
     );
 
-    expect(find.text('환자가 연결을 끊었어요'), findsOneWidget);
+    expect(find.text('환자가 대화를 끝냈어요'), findsOneWidget);
     expect(find.text('닫기'), findsOneWidget);
     await tester.tap(find.text('다시 연결'));
     await tester.pumpAndSettle();
-    expect(find.text('환자가 연결을 끊었어요'), findsNothing);
+    expect(find.text('환자가 대화를 끝냈어요'), findsNothing);
     await tester.enterText(find.byType(TextField), 'K7Q2MX');
     await tester.pump();
     await tester.tap(find.text('연결하기'));
