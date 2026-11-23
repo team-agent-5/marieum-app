@@ -106,7 +106,8 @@ void main() {
         ),
       );
       expect(find.text('0:03'), findsOneWidget);
-      expect(find.text('손을 떼면 끝나요'), findsOneWidget);
+      expect(find.text('녹음 중 · 손을 떼면 끝나요'), findsOneWidget);
+      expect(find.byIcon(Icons.graphic_eq_rounded), findsOneWidget);
 
       await tester.tap(find.text('요청'), warnIfMissed: false);
       await tester.tap(find.text('실시간 모드'), warnIfMissed: false);
@@ -140,7 +141,8 @@ void main() {
         const UtteranceState(phase: UtterancePhase.analyzing),
         settle: false,
       );
-      expect(find.text('분석하고 있어요'), findsOneWidget);
+      expect(find.text('분석 중'), findsOneWidget);
+      expect(find.text('말씀을 분석하고 있어요'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('speak_cta')));
       verifyNever(() => bloc.add(any()));
     });

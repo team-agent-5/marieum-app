@@ -22,6 +22,14 @@ abstract final class AppTokens {
   static const warningSoft = Color(0xFFFFF5E6);
   static const focus = Color(0xFFF1B800);
 
+  /// The speak button while recording and while the words are analyzed.
+  static const recording = Color(0xFF98343F);
+  static const recordingRim = Color(0xFFC8676F);
+  static const recordingSoft = Color(0xFFF0DEE3);
+  static const analyzing = Color(0xFF2F4A8A);
+  static const analyzingRim = Color(0xFF6B85BF);
+  static const analyzingSoft = Color(0xFFB5C3E3);
+
   static const fontFamily = 'Pretendard';
   static const pagePadding = 18.0;
   static const gap = 14.0;
