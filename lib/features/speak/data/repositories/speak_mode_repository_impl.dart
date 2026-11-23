@@ -8,9 +8,12 @@ import 'package:marieum_app/features/speak/domain/repositories/speak_mode_reposi
 
 class SpeakModeRepositoryImpl implements SpeakModeRepository {
   SpeakModeRepositoryImpl({required this._prefs, required this._source})
-    : initialMode = _prefs.readString(PrefsKeys.speakMode) == 'live'
-          ? SpeakMode.live
-          : SpeakMode.precise;
+    : initialMode = switch (_prefs.readString(PrefsKeys.speakMode)) {
+        // 'listen' was a mode of its own for a while; it is live mode with
+        // the other phone chosen on the live screen now.
+        'live' || 'listen' => SpeakMode.live,
+        _ => SpeakMode.precise,
+      };
   final PrefsStore _prefs;
   final SpeakPreferencesDataSource _source;
   @override

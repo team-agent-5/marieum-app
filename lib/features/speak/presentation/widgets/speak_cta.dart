@@ -254,7 +254,7 @@ class _SpeakCtaState extends State<SpeakCta>
             ),
           ),
         ),
-        const SizedBox(height: 44),
+        const Flexible(child: SizedBox(height: 44)),
       ],
     );
   }

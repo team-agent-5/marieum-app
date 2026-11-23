@@ -4,7 +4,10 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:marieum_app/app/router/app_routes.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
+import 'package:marieum_app/features/speak/domain/repositories/live_stream.dart';
 import 'package:marieum_app/features/speak/presentation/cubit/live_session_cubit.dart';
 import 'package:marieum_app/features/speak/presentation/widgets/live_session_view.dart';
 import 'package:mocktail/mocktail.dart';
@@ -17,7 +20,11 @@ final _at = DateTime(2026, 10, 31, 14, 5);
 void main() {
   late _MockLiveSessionCubit cubit;
 
-  Future<void> pumpView(WidgetTester tester, LiveSessionState state) async {
+  Future<void> pumpView(
+    WidgetTester tester,
+    LiveSessionState state, {
+    bool withHostRoute = false,
+  }) async {
     cubit = _MockLiveSessionCubit();
     when(() => cubit.replay(any())).thenAnswer((_) async {});
     whenListen(
@@ -25,14 +32,39 @@ void main() {
       const Stream<LiveSessionState>.empty(),
       initialState: state,
     );
-    await tester.pumpWidget(
-      MaterialApp(
-        home: BlocProvider<LiveSessionCubit>.value(
-          value: cubit,
-          child: LiveSessionView(onClose: () {}),
-        ),
-      ),
+    final view = BlocProvider<LiveSessionCubit>.value(
+      value: cubit,
+      child: LiveSessionView(onClose: () {}),
     );
+    if (withHostRoute) {
+      final router = GoRouter(
+        initialLocation: AppRoutes.live,
+        routes: [
+          GoRoute(path: AppRoutes.live, builder: (_, _) => view),
+          GoRoute(
+            path: AppRoutes.listenHost,
+            builder: (context, _) => Scaffold(
+              body: Column(
+                children: [
+                  TextButton(
+                    onPressed: () => context.pop(true),
+                    child: const Text('연결 완료'),
+                  ),
+                  TextButton(
+                    onPressed: () => context.pop(),
+                    child: const Text('연결 취소'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    } else {
+      await tester.pumpWidget(MaterialApp(home: view));
+    }
     await tester.pump(const Duration(milliseconds: 500));
   }
 
@@ -45,6 +77,211 @@ void main() {
     ))
       (bar.decoration! as BoxDecoration).color,
   ];
+
+  const checking = '상대방 폰을 확인하고 있어요';
+  const relaying = '상대방 폰으로 전하고 있어요';
+  const localFallback = '상대방 폰 연결이 끊겨 이 폰에서 읽어요';
+  const deliveries = [
+    (LiveDelivery.sending, '보내는 중'),
+    (LiveDelivery.delivered, '상대방 폰에 보냈어요'),
+    (LiveDelivery.played, '상대방 폰에서 읽고 있어요'),
+    (LiveDelivery.local, '이 폰에서 읽었어요'),
+  ];
+
+  LiveSegment sentence(int id, LiveDelivery delivery) => LiveSegment(
+    id: id,
+    at: _at,
+    status: LiveSegmentStatus.done,
+    text: '문장$id',
+    delivery: delivery,
+  );
+
+  group('sound destination', () {
+    Set<bool> selected(WidgetTester tester) => tester
+        .widget<SegmentedButton<bool>>(find.byType(SegmentedButton<bool>))
+        .selected;
+
+    testWidgets('defaults to this phone and switches directly when joined', (
+      tester,
+    ) async {
+      await pumpView(
+        tester,
+        const LiveSessionState(
+          status: LiveStatus.listening,
+          listener: ListenerPresence.joined,
+        ),
+      );
+
+      expect(find.text('소리 나는 곳'), findsOneWidget);
+      expect(selected(tester), {false});
+      await tester.tap(find.text('상대방 폰'));
+
+      verify(cubit.useOtherPhone).called(1);
+    });
+
+    for (final confirmed in [true, false]) {
+      testWidgets(
+        'switches to the other phone only if setup returns true (confirmed: $confirmed)',
+        (
+          tester,
+        ) async {
+          await pumpView(
+            tester,
+            const LiveSessionState(
+              status: LiveStatus.listening,
+              listener: ListenerPresence.none,
+            ),
+            withHostRoute: true,
+          );
+
+          await tester.tap(find.text('상대방 폰'));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 500));
+          verifyNever(cubit.useOtherPhone);
+          await tester.tap(find.text(confirmed ? '연결 완료' : '연결 취소'));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 500));
+
+          if (confirmed) {
+            verify(cubit.useOtherPhone).called(1);
+          } else {
+            verifyNever(cubit.useOtherPhone);
+            expect(selected(tester), {false});
+          }
+        },
+      );
+    }
+
+    testWidgets('switches back to this phone', (tester) async {
+      await pumpView(
+        tester,
+        const LiveSessionState(status: LiveStatus.listening, relay: true),
+      );
+      when(cubit.useThisPhone).thenAnswer((_) async {});
+
+      expect(selected(tester), {true});
+      await tester.tap(find.text('내 폰'));
+
+      verify(cubit.useThisPhone).called(1);
+    });
+  });
+
+  group('relay live session', () {
+    for (final (presence, message) in [
+      (null, checking),
+      (ListenerPresence.joined, relaying),
+      (ListenerPresence.left, localFallback),
+      (ListenerPresence.none, localFallback),
+    ]) {
+      testWidgets('shows the relay banner for ${presence?.name ?? 'unknown'}', (
+        tester,
+      ) async {
+        await pumpView(
+          tester,
+          LiveSessionState(
+            status: LiveStatus.listening,
+            relay: true,
+            listener: presence,
+          ),
+        );
+
+        expect(find.text(message), findsOneWidget);
+        expect(find.text('내 목소리로 말하기'), findsOneWidget);
+        expect(find.text('실시간 모드'), findsOneWidget);
+      });
+    }
+
+    for (final (delivery, label) in deliveries) {
+      testWidgets('shows the ${delivery.name} badge on the newest sentence', (
+        tester,
+      ) async {
+        await pumpView(
+          tester,
+          LiveSessionState(
+            status: LiveStatus.listening,
+            relay: true,
+            segments: [sentence(0, delivery)],
+          ),
+        );
+
+        expect(find.text(label), findsOneWidget);
+      });
+    }
+
+    testWidgets('shows a badge on a past sentence and omits missing delivery', (
+      tester,
+    ) async {
+      await pumpView(
+        tester,
+        LiveSessionState(
+          status: LiveStatus.listening,
+          relay: true,
+          segments: [
+            sentence(0, LiveDelivery.played),
+            sentence(1, LiveDelivery.none),
+          ],
+        ),
+      );
+
+      expect(find.text('문장0'), findsOneWidget);
+      expect(find.text('문장1'), findsOneWidget);
+      expect(find.text('상대방 폰에서 읽고 있어요'), findsOneWidget);
+      for (final (_, label) in deliveries.where(
+        (entry) => entry.$1 != LiveDelivery.played,
+      )) {
+        expect(find.text(label), findsNothing);
+      }
+    });
+
+    testWidgets(
+      'keeps the badge reachable after a long sentence on a narrow phone',
+      (
+        tester,
+      ) async {
+        await tester.binding.setSurfaceSize(const Size(320, 640));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        await pumpView(
+          tester,
+          LiveSessionState(
+            status: LiveStatus.listening,
+            relay: true,
+            listener: ListenerPresence.none,
+            segments: [
+              sentence(0, LiveDelivery.local).copyWith(
+                text: List.filled(8, '이 문장을 함께 확인해 주세요.').join(' '),
+              ),
+            ],
+          ),
+        );
+
+        final badge = find.text('이 폰에서 읽었어요');
+        await tester.ensureVisible(badge);
+        await tester.pump();
+        expect(badge.hitTestable(), findsOneWidget);
+        expect(find.text(localFallback), findsOneWidget);
+      },
+    );
+
+    testWidgets('keeps relay indicators off the regular live screen', (
+      tester,
+    ) async {
+      await pumpView(
+        tester,
+        LiveSessionState(
+          status: LiveStatus.listening,
+          listener: ListenerPresence.joined,
+          segments: [sentence(0, LiveDelivery.played)],
+        ),
+      );
+
+      expect(find.text('내 목소리로 말하기'), findsOneWidget);
+      expect(find.text('실시간 모드'), findsOneWidget);
+      for (final message in [checking, relaying, localFallback]) {
+        expect(find.text(message), findsNothing);
+      }
+      expect(find.text('상대방 폰에서 읽고 있어요'), findsNothing);
+    });
+  });
 
   group(LiveSessionView, () {
     testWidgets('shows the newest sentence large and earlier ones above', (

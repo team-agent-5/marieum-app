@@ -8,7 +8,13 @@ import 'package:marieum_app/core/log/app_log.dart';
 class NetworkLogInterceptor extends Interceptor {
   static const _started = 'log_started';
   static const _maxBody = 300;
-  static const _hidden = {'password', 'access_token', 'refresh_token'};
+  static const _hidden = {
+    'password',
+    'access_token',
+    'refresh_token',
+    'listener_token',
+    'join_code',
+  };
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {

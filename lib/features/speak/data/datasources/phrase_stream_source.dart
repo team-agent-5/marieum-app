@@ -127,6 +127,27 @@ class _Conversation implements LiveConversation {
     _sendEnd();
   }
 
+  @override
+  bool say({
+    required String utteranceId,
+    required String text,
+    required String traceId,
+  }) {
+    final channel = _channel;
+    if (_closed || !_open || channel == null) return false;
+    channel.sink.add(
+      jsonEncode({
+        'type': 'say',
+        'utterance_id': utteranceId,
+        'text': text,
+        'trace_id': traceId,
+        'client_ts': DateTime.now().toUtc().toIso8601String(),
+      }),
+    );
+    AppLog.ws('-> say $utteranceId');
+    return true;
+  }
+
   void _sendEnd() {
     if (!_ending || _endSent || !_open || _backlog.isNotEmpty) return;
     _endSent = true;
@@ -279,6 +300,26 @@ class _Conversation implements LiveConversation {
             // The connection closes after this and is reopened.
             break;
         }
+      case 'said':
+        final id = json['utterance_id'];
+        if (id is! String) return;
+        final delivered = json['delivered'] == true;
+        AppLog.ws('<- said $id delivered=$delivered');
+        _emit(LiveSaid(id, delivered: delivered));
+      case 'played':
+        final id = json['utterance_id'];
+        if (id is! String) return;
+        AppLog.ws('<- played $id');
+        _emit(LivePlayed(id));
+      case 'listener':
+        final presence = switch (json['state']) {
+          'joined' => ListenerPresence.joined,
+          'left' => ListenerPresence.left,
+          'none' => ListenerPresence.none,
+          _ => null,
+        };
+        AppLog.ws('<- listener ${json['state']}');
+        if (presence != null) _emit(LiveListener(presence));
       case 'session_end':
         // Sent once after `end`, when the last final is out; it may not be
         // marked `is_last`, as an empty last final is left out.

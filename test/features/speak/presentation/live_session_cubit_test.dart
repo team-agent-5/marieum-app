@@ -8,6 +8,7 @@ import 'package:marieum_app/core/audio/mic_stream.dart';
 import 'package:marieum_app/core/error/failure.dart';
 import 'package:marieum_app/core/error/result.dart';
 import 'package:marieum_app/core/tts/tts_port.dart';
+import 'package:marieum_app/features/listen/domain/repositories/listen_repository.dart';
 import 'package:marieum_app/features/speak/domain/entities/utterance.dart';
 import 'package:marieum_app/features/speak/domain/repositories/live_stream.dart';
 import 'package:marieum_app/features/speak/domain/repositories/utterance_repository.dart';
@@ -20,12 +21,29 @@ class _MockRepository extends Mock implements UtteranceRepository {}
 
 class _MockTts extends Mock implements PlaybackTtsPort {}
 
+class _MockListen extends Mock implements ListenHostRepository {}
+
 class _FakeConversation implements LiveConversation {
   final server = StreamController<LiveEvent>();
   final sent = <Uint8List>[];
   bool ended = false;
+  final said = <({String id, String text})>[];
+
+  /// Whether a `say` can go out, as when the connection is open.
+  bool open = true;
   @override
   Stream<LiveEvent> get events => server.stream;
+  @override
+  bool say({
+    required String utteranceId,
+    required String text,
+    required String traceId,
+  }) {
+    if (!open) return false;
+    said.add((id: utteranceId, text: text));
+    return true;
+  }
+
   @override
   void add(Uint8List audio) => sent.add(audio);
   @override
@@ -375,5 +393,447 @@ void main() {
       expect(cubit.state.segments.single.status, LiveSegmentStatus.unclear);
       verifyNothingSpoken();
     });
+  });
+
+  group('LiveSessionCubit on this phone', () {
+    test('picks the other phone up again when it is still listening', () async {
+      final mic = _MockMic();
+      final input = StreamController<Uint8List>();
+      when(mic.start).thenAnswer((_) async => input.stream);
+      when(mic.stop).thenAnswer((_) async {});
+      when(mic.dispose).thenAnswer((_) async {});
+      final tts = _MockTts();
+      when(tts.stop).thenAnswer((_) async => const Success(null));
+      var now = DateTime(2026, 11, 22, 12);
+      final stream = _FakeStream(() => now);
+      final cubit = LiveSessionCubit(
+        mic: mic,
+        stream: stream,
+        repository: _MockRepository(),
+        tts: tts,
+        now: () => now,
+      );
+      await cubit.start();
+      now = now.add(LiveSessionCubit.warmUp);
+      input.add(Uint8List(3200));
+      await pumpEventQueue();
+      expect(cubit.state.relay, isFalse);
+      stream.conversation.server.add(
+        const LiveListener(ListenerPresence.joined),
+      );
+      await pumpEventQueue();
+      expect(cubit.state.relay, isTrue);
+      // Only the first news restores it; a later join is the patient's call.
+      await cubit.useThisPhone();
+      stream.conversation.server
+        ..add(const LiveListener(ListenerPresence.left))
+        ..add(const LiveListener(ListenerPresence.joined));
+      await pumpEventQueue();
+      expect(cubit.state.relay, isFalse);
+      await cubit.close();
+    });
+
+    test('estimates how long a sentence takes to say', () {
+      expect(
+        LiveSessionCubit.estimateSpeakingTime('물 좀 주세요'),
+        const Duration(milliseconds: 500 + 5 * 180),
+      );
+      expect(
+        LiveSessionCubit.estimateSpeakingTime('가' * 200),
+        const Duration(seconds: 15),
+      );
+    });
+  });
+
+  group('LiveSessionCubit with the other phone', () {
+    late _MockMic mic;
+    late _MockRepository repository;
+    late _MockTts tts;
+    late _FakeStream stream;
+    late StreamController<Uint8List> input;
+    late DateTime now;
+    late LiveSessionCubit cubit;
+    late int ids;
+    late _MockListen listen;
+
+    _FakeConversation server() => stream.conversation;
+
+    Future<void> hear(String text) async {
+      server().server.add(LiveFinal(_heard(text, 0.9)));
+      await pumpEventQueue();
+    }
+
+    setUp(() async {
+      mic = _MockMic();
+      repository = _MockRepository();
+      tts = _MockTts();
+      now = DateTime(2026, 11, 22, 12);
+      stream = _FakeStream(() => now);
+      ids = 0;
+      listen = _MockListen();
+      when(listen.end).thenAnswer((_) async => const Success(null));
+      when(mic.start).thenAnswer((_) async {
+        input = StreamController<Uint8List>();
+        return input.stream;
+      });
+      when(mic.stop).thenAnswer((_) async {});
+      when(mic.dispose).thenAnswer((_) async {});
+      when(tts.stop).thenAnswer((_) async => const Success(null));
+      when(
+        () => tts.speakWithPlayback(
+          any(),
+          onStarted: any(named: 'onStarted'),
+          onEnded: any(named: 'onEnded'),
+        ),
+      ).thenAnswer((call) async {
+        (call.namedArguments[#onStarted] as void Function())();
+        (call.namedArguments[#onEnded] as void Function())();
+        return const Success(null);
+      });
+      when(
+        () => repository.bypass(any(), latency: any(named: 'latency')),
+      ).thenAnswer((_) async => const Success('log'));
+      cubit = LiveSessionCubit(
+        mic: mic,
+        stream: stream,
+        repository: repository,
+        tts: tts,
+        relay: true,
+        listen: listen,
+        newUtteranceId: () => 'u${ids++}',
+        speakingTime: (_) => Duration.zero,
+        saidWait: const Duration(milliseconds: 50),
+        now: () => now,
+      );
+      await cubit.start();
+      now = now.add(LiveSessionCubit.warmUp);
+      input.add(Uint8List(3200));
+      await pumpEventQueue();
+    });
+
+    tearDown(() => cubit.close());
+
+    test('going back to this phone ends the listening session', () async {
+      await cubit.useThisPhone();
+      expect(cubit.state.relay, isFalse);
+      verify(listen.end).called(1);
+      await hear('물 주세요');
+      expect(server().said, isEmpty);
+      expect(cubit.state.segments.single.delivery, LiveDelivery.none);
+      cubit.useOtherPhone();
+      expect(cubit.state.relay, isTrue);
+    });
+
+    test('after going back to this phone the other is no longer counted '
+        'as listening, and a late join does not switch it back', () async {
+      await cubit.useThisPhone();
+      expect(cubit.state.listener, ListenerPresence.none);
+      server().server.add(const LiveListener(ListenerPresence.joined));
+      await pumpEventQueue();
+      expect(cubit.state.relay, isFalse);
+    });
+
+    test('a sentence read here after switching back waits for the other '
+        'phone to finish', () async {
+      final stream2 = _FakeStream(() => now);
+      final other = LiveSessionCubit(
+        mic: mic,
+        stream: stream2,
+        repository: repository,
+        tts: tts,
+        relay: true,
+        listen: listen,
+        newUtteranceId: () => 'v${ids++}',
+        speakingTime: (_) => const Duration(milliseconds: 150),
+        now: () => now,
+      );
+      await other.start();
+      now = now.add(LiveSessionCubit.warmUp);
+      input.add(Uint8List(3200));
+      await pumpEventQueue();
+      final server2 = stream2.conversation.server
+        ..add(LiveFinal(_heard('첫째', 0.9)));
+      await pumpEventQueue();
+      server2
+        ..add(const LiveSaid('v0', delivered: true))
+        ..add(const LivePlayed('v0'));
+      await pumpEventQueue();
+      await other.useThisPhone();
+      server2.add(LiveFinal(_heard('둘째', 0.9)));
+      await pumpEventQueue();
+      verifyNever(
+        () => tts.speakWithPlayback(
+          any(),
+          onStarted: any(named: 'onStarted'),
+          onEnded: any(named: 'onEnded'),
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      await pumpEventQueue();
+      verify(
+        () => tts.speakWithPlayback(
+          '둘째',
+          onStarted: any(named: 'onStarted'),
+          onEnded: any(named: 'onEnded'),
+        ),
+      ).called(1);
+      await other.close();
+    });
+
+    test('follows whether the other phone is listening', () async {
+      expect(cubit.state.relay, isTrue);
+      expect(cubit.state.listener, isNull);
+      server().server.add(const LiveListener(ListenerPresence.joined));
+      await pumpEventQueue();
+      expect(cubit.state.listener, ListenerPresence.joined);
+    });
+
+    test(
+      'sends a sentence to the other phone instead of speaking it',
+      () async {
+        server().server.add(const LiveListener(ListenerPresence.joined));
+        await hear('물 주세요');
+        expect(server().said, [(id: 'u0', text: '물 주세요')]);
+        expect(cubit.state.segments.single.delivery, LiveDelivery.sending);
+
+        server().server.add(const LiveSaid('u0', delivered: true));
+        await pumpEventQueue();
+        expect(cubit.state.segments.single.delivery, LiveDelivery.delivered);
+        expect(cubit.state.micPaused, isFalse);
+        verifyNever(
+          () => tts.speakWithPlayback(
+            any(),
+            onStarted: any(named: 'onStarted'),
+            onEnded: any(named: 'onEnded'),
+          ),
+        );
+        verify(
+          () => repository.bypass(any(), latency: any(named: 'latency')),
+        ).called(1);
+
+        server().server.add(const LivePlayed('u0'));
+        await pumpEventQueue();
+        expect(cubit.state.segments.single.delivery, LiveDelivery.played);
+      },
+    );
+
+    test(
+      "drops the other phone's voice heard back by the microphone",
+      () async {
+        await hear('물 주세요');
+        server().server.add(const LiveSaid('u0', delivered: true));
+        await pumpEventQueue();
+        await hear('물 주세요');
+        expect(cubit.state.segments, hasLength(1));
+        expect(server().said, hasLength(1));
+      },
+    );
+
+    for (final (name, answer) in [
+      ('not delivered', const LiveSaid('u0', delivered: false)),
+      ('unanswered', null),
+    ]) {
+      test('reads a sentence here when it was $name', () async {
+        await hear('물 주세요');
+        if (answer != null) server().server.add(answer);
+        await Future<void>.delayed(const Duration(milliseconds: 80));
+        await pumpEventQueue();
+        expect(cubit.state.segments.single.delivery, LiveDelivery.local);
+        verify(
+          () => tts.speakWithPlayback(
+            '물 주세요',
+            onStarted: any(named: 'onStarted'),
+            onEnded: any(named: 'onEnded'),
+          ),
+        ).called(1);
+        // A late yes does not change it back.
+        server().server.add(const LiveSaid('u0', delivered: true));
+        await pumpEventQueue();
+        expect(cubit.state.segments.single.delivery, LiveDelivery.local);
+      });
+    }
+
+    test('reads here without asking when the other phone has left', () async {
+      server().server.add(const LiveListener(ListenerPresence.left));
+      await hear('물 주세요');
+      expect(server().said, isEmpty);
+      expect(cubit.state.segments.single.delivery, LiveDelivery.local);
+    });
+
+    test('reads here when the connection is not open', () async {
+      server().open = false;
+      await hear('물 주세요');
+      expect(cubit.state.segments.single.delivery, LiveDelivery.local);
+    });
+
+    void verifyTts(List<String> texts) {
+      final calls = verify(
+        () => tts.speakWithPlayback(
+          captureAny(),
+          onStarted: any(named: 'onStarted'),
+          onEnded: any(named: 'onEnded'),
+        ),
+      ).captured;
+      expect(calls, texts);
+    }
+
+    void verifyNoTts() => verifyNever(
+      () => tts.speakWithPlayback(
+        any(),
+        onStarted: any(named: 'onStarted'),
+        onEnded: any(named: 'onEnded'),
+      ),
+    );
+
+    test('a played without a said counts as delivered', () async {
+      await hear('물 주세요');
+      // The said was lost with the connection; the played still came.
+      server().server.add(const LivePlayed('u0'));
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      await pumpEventQueue();
+      expect(cubit.state.segments.single.delivery, LiveDelivery.played);
+      verifyNoTts();
+    });
+
+    test('finishing sees a sentence on its way through', () async {
+      await hear('물 주세요');
+      final finishing = cubit.finish();
+      await pumpEventQueue();
+      expect(cubit.state.status, LiveStatus.finishing);
+      server().server.add(const LiveSaid('u0', delivered: true));
+      await finishing;
+      expect(cubit.state.status, LiveStatus.closed);
+      verify(
+        () => repository.bypass(any(), latency: any(named: 'latency')),
+      ).called(1);
+    });
+
+    test('sentences read here keep the order they were said', () async {
+      await hear('첫째');
+      await hear('둘째');
+      // The second is refused first; the first gets no answer at all.
+      server().server.add(const LiveSaid('u1', delivered: false));
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      await pumpEventQueue();
+      verifyTts(['첫째', '둘째']);
+    });
+
+    test(
+      'a sentence read here waits for the one the other phone is saying',
+      () async {
+        await hear('첫째');
+        server().server.add(const LiveSaid('u0', delivered: true));
+        await hear('둘째');
+        server().server.add(const LiveSaid('u1', delivered: false));
+        await pumpEventQueue();
+        verifyNoTts();
+        server().server.add(const LivePlayed('u0'));
+        await pumpEventQueue();
+        verifyTts(['둘째']);
+      },
+    );
+
+    test('a sentence played on the other phone in between does not let a '
+        'later one read here jump ahead', () async {
+      await hear('A');
+      await hear('B');
+      server().server
+        ..add(const LiveSaid('u1', delivered: true))
+        ..add(const LivePlayed('u1'));
+      await hear('C');
+      server().server.add(const LiveSaid('u2', delivered: false));
+      await pumpEventQueue();
+      server().server.add(const LiveSaid('u0', delivered: false));
+      await pumpEventQueue();
+      verifyTts(['A', 'C']);
+    });
+
+    test('a replay read here after the other phone left shows it was read '
+        'here', () async {
+      await hear('물 주세요');
+      server().server
+        ..add(const LiveSaid('u0', delivered: true))
+        ..add(const LiveListener(ListenerPresence.left));
+      await pumpEventQueue();
+      final replay = cubit.replay(cubit.state.segments.single.id);
+      server().server.add(const LivePlayed('u0'));
+      await replay;
+      await pumpEventQueue();
+      expect(cubit.state.segments.single.delivery, LiveDelivery.local);
+      verifyTts(['물 주세요']);
+    });
+
+    test('a replay read here while the sentence is read here too is not '
+        'lost', () async {
+      final playing = Completer<void>();
+      when(
+        () => tts.speakWithPlayback(
+          any(),
+          onStarted: any(named: 'onStarted'),
+          onEnded: any(named: 'onEnded'),
+        ),
+      ).thenAnswer((call) async {
+        (call.namedArguments[#onStarted] as void Function())();
+        await playing.future;
+        (call.namedArguments[#onEnded] as void Function())();
+        return const Success(null);
+      });
+      await hear('물 주세요');
+      final replay = cubit.replay(cubit.state.segments.single.id);
+      server().server
+        ..add(const LiveSaid('u0', delivered: false))
+        ..add(const LiveSaid('u1', delivered: false));
+      await pumpEventQueue();
+      playing.complete();
+      await replay;
+      await pumpEventQueue();
+      verifyTts(['물 주세요', '물 주세요']);
+      // Only the first one is logged.
+      verify(
+        () => repository.bypass(any(), latency: any(named: 'latency')),
+      ).called(1);
+    });
+
+    test("an earlier send's played does not overwrite a replay", () async {
+      await hear('물 주세요');
+      server().server.add(const LiveSaid('u0', delivered: true));
+      await pumpEventQueue();
+      unawaited(cubit.replay(cubit.state.segments.single.id));
+      await pumpEventQueue();
+      server().server.add(const LivePlayed('u0'));
+      await pumpEventQueue();
+      expect(cubit.state.segments.single.delivery, LiveDelivery.sending);
+    });
+
+    test('stop and finish wait for the same clean-up', () async {
+      final stopping = Completer<void>();
+      when(mic.stop).thenAnswer((_) => stopping.future);
+      final first = cubit.stop();
+      var finished = false;
+      unawaited(cubit.finish().then((_) => finished = true));
+      await pumpEventQueue();
+      expect(finished, isFalse);
+      stopping.complete();
+      await first;
+      await pumpEventQueue();
+      expect(finished, isTrue);
+    });
+
+    test(
+      'a replay goes to the other phone again without a second log',
+      () async {
+        await hear('물 주세요');
+        server().server.add(const LiveSaid('u0', delivered: true));
+        await pumpEventQueue();
+        final replay = cubit.replay(cubit.state.segments.single.id);
+        await pumpEventQueue();
+        expect(server().said.last, (id: 'u1', text: '물 주세요'));
+        server().server.add(const LiveSaid('u1', delivered: true));
+        await replay;
+        verify(
+          () => repository.bypass(any(), latency: any(named: 'latency')),
+        ).called(1);
+      },
+    );
   });
 }

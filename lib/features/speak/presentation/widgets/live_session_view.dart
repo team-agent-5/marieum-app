@@ -3,9 +3,13 @@ import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
+import 'package:marieum_app/app/router/app_routes.dart';
 import 'package:marieum_app/core/audio/speech_segmenter.dart';
 import 'package:marieum_app/core/theme/tokens.dart';
+import 'package:marieum_app/core/ui/adaptive/adaptive_segmented_control.dart';
 import 'package:marieum_app/core/ui/adaptive/adaptive_top_bar.dart';
+import 'package:marieum_app/features/speak/domain/repositories/live_stream.dart';
 import 'package:marieum_app/features/speak/presentation/cubit/live_session_cubit.dart';
 import 'package:marieum_app/features/speak/presentation/widgets/typed_transcript.dart';
 
@@ -55,6 +59,15 @@ class LiveSessionView extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           _Header(state: state),
+                          const SizedBox(height: 12),
+                          _SoundDestination(
+                            relay: state.relay,
+                            enabled: state.status == LiveStatus.listening,
+                          ),
+                          if (state.relay) ...[
+                            const SizedBox(height: 12),
+                            _RelayBanner(presence: state.listener),
+                          ],
                           const SizedBox(height: 16),
                           Expanded(child: _Transcript(state: state)),
                           const SizedBox(height: 18),
@@ -271,6 +284,116 @@ class _Header extends StatelessWidget {
   }
 }
 
+class _SoundDestination extends StatefulWidget {
+  const _SoundDestination({required this.relay, required this.enabled});
+
+  final bool relay;
+  final bool enabled;
+
+  @override
+  State<_SoundDestination> createState() => _SoundDestinationState();
+}
+
+class _SoundDestinationState extends State<_SoundDestination> {
+  bool _changing = false;
+
+  Future<void> _select(bool relay) async {
+    if (!widget.enabled || _changing || relay == widget.relay) return;
+    final cubit = context.read<LiveSessionCubit>();
+    if (relay && cubit.state.listener == ListenerPresence.joined) {
+      cubit.useOtherPhone();
+      return;
+    }
+
+    setState(() => _changing = true);
+    try {
+      if (relay) {
+        final confirmed = await context.push<bool>(AppRoutes.listenHost);
+        if (mounted && confirmed == true) cubit.useOtherPhone();
+      } else {
+        await cubit.useThisPhone();
+      }
+    } finally {
+      if (mounted) setState(() => _changing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final disabled = !widget.enabled || _changing;
+    return Semantics(
+      label: '소리 나는 곳',
+      container: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const ExcludeSemantics(
+            child: Text(
+              '소리 나는 곳',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                color: AppTokens.ink,
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          ExcludeFocus(
+            excluding: disabled,
+            child: AbsorbPointer(
+              absorbing: disabled,
+              child: AdaptiveSegmentedControl<bool>(
+                value: widget.relay,
+                onChanged: (relay) => unawaited(_select(relay)),
+                children: const {
+                  false: Text('내 폰', textAlign: TextAlign.center),
+                  true: Text('상대방 폰', textAlign: TextAlign.center),
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RelayBanner extends StatelessWidget {
+  const _RelayBanner({required this.presence});
+
+  final ListenerPresence? presence;
+
+  @override
+  Widget build(BuildContext context) {
+    final (message, background) = switch (presence) {
+      null => ('상대방 폰을 확인하고 있어요', AppTokens.surfaceBlue),
+      ListenerPresence.joined => ('상대방 폰으로 전하고 있어요', AppTokens.successSoft),
+      ListenerPresence.left || ListenerPresence.none => (
+        '상대방 폰 연결이 끊겨 이 폰에서 읽어요',
+        AppTokens.warningSoft,
+      ),
+    };
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          message,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: AppTokens.ink,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Subtitle layout: the newest sentence large at the bottom, earlier ones
 /// small above it so a listener can read the current one from a distance.
 class _Transcript extends StatelessWidget {
@@ -280,6 +403,14 @@ class _Transcript extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final segments = state.segments;
+    final latest = segments.lastOrNull;
+    final current = latest == null
+        ? null
+        : _Current(
+            segment: latest,
+            playing: state.playingId == latest.id,
+            relay: state.relay,
+          );
     return Container(
       key: const ValueKey('live_transcript'),
       padding: const EdgeInsets.all(18),
@@ -328,7 +459,7 @@ class _Transcript extends StatelessWidget {
           // The newest sentence sits in the middle while there is room and
           // is pushed down as earlier ones pile up above it.
           Expanded(
-            child: segments.isEmpty
+            child: current == null
                 ? const Center(
                     child: Text(
                       '말씀하시면 해석한 문장이 여기에 바로 나와요',
@@ -359,15 +490,19 @@ class _Transcript extends StatelessWidget {
                                 segments.length - 1,
                               ),
                               playingId: state.playingId,
+                              relay: state.relay,
                             ),
                           ),
                         ),
                         const SizedBox(height: 12),
                       ],
-                      _Current(
-                        segment: segments.last,
-                        playing: state.playingId == segments.last.id,
-                      ),
+                      if (state.relay)
+                        Flexible(
+                          flex: 2,
+                          child: SingleChildScrollView(child: current),
+                        )
+                      else
+                        current,
                     ],
                   ),
           ),
@@ -378,9 +513,14 @@ class _Transcript extends StatelessWidget {
 }
 
 class _History extends StatefulWidget {
-  const _History({required this.segments, required this.playingId});
+  const _History({
+    required this.segments,
+    required this.playingId,
+    required this.relay,
+  });
   final List<LiveSegment> segments;
   final int? playingId;
+  final bool relay;
 
   @override
   State<_History> createState() => _HistoryState();
@@ -426,6 +566,7 @@ class _HistoryState extends State<_History> {
           key: ValueKey(segment.id),
           segment: segment,
           playing: widget.playingId == segment.id,
+          relay: widget.relay,
         );
       },
     );
@@ -445,10 +586,16 @@ class _HistoryState extends State<_History> {
 }
 
 class _HistoryLine extends StatelessWidget {
-  const _HistoryLine({required this.segment, required this.playing, super.key});
+  const _HistoryLine({
+    required this.segment,
+    required this.playing,
+    required this.relay,
+    super.key,
+  });
 
   final LiveSegment segment;
   final bool playing;
+  final bool relay;
 
   @override
   Widget build(BuildContext context) {
@@ -465,9 +612,23 @@ class _HistoryLine extends StatelessWidget {
       LiveSegmentStatus.unclear => ('잘 들리지 않았어요', AppTokens.ink3),
       LiveSegmentStatus.failed => (segment.text, AppTokens.danger),
     };
+    final delivery = relay ? _deliveryLabel(segment.delivery) : null;
+    final line = Text(
+      text,
+      style: TextStyle(
+        fontSize: done ? 17 : 15,
+        height: 1.35,
+        fontWeight: done ? FontWeight.w700 : FontWeight.w500,
+        color: color,
+      ),
+    );
     return Semantics(
       button: done,
-      label: done ? '$time $text, 다시 듣기' : '$time $text',
+      label: [
+        '$time $text',
+        ?delivery,
+        if (done) '다시 듣기',
+      ].join(', '),
       excludeSemantics: true,
       child: InkWell(
         borderRadius: BorderRadius.circular(10),
@@ -495,15 +656,7 @@ class _HistoryLine extends StatelessWidget {
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Text(
-                    text,
-                    style: TextStyle(
-                      fontSize: done ? 17 : 15,
-                      height: 1.35,
-                      fontWeight: done ? FontWeight.w700 : FontWeight.w500,
-                      color: color,
-                    ),
-                  ),
+                  child: _SentenceWithBadge(label: delivery, child: line),
                 ),
                 if (done)
                   Padding(
@@ -525,9 +678,14 @@ class _HistoryLine extends StatelessWidget {
 
 /// The newest sentence, large. A new one rises in from below.
 class _Current extends StatelessWidget {
-  const _Current({required this.segment, required this.playing});
+  const _Current({
+    required this.segment,
+    required this.playing,
+    required this.relay,
+  });
   final LiveSegment segment;
   final bool playing;
+  final bool relay;
 
   static const _style = TextStyle(
     fontSize: 30,
@@ -563,10 +721,15 @@ class _Current extends StatelessWidget {
     );
   }
 
+  String? get _delivery => relay ? _deliveryLabel(segment.delivery) : null;
+
   Widget _content(BuildContext context) => switch (segment.status) {
     LiveSegmentStatus.interpreting when segment.text.isNotEmpty => Semantics(
       liveRegion: true,
-      child: Text(segment.text, style: _style.copyWith(color: AppTokens.ink2)),
+      child: Text(
+        segment.text,
+        style: _style.copyWith(color: AppTokens.ink2),
+      ),
     ),
     LiveSegmentStatus.interpreting => const Row(
       children: [
@@ -575,13 +738,16 @@ class _Current extends StatelessWidget {
           child: CircularProgressIndicator(strokeWidth: 2.5),
         ),
         SizedBox(width: 12),
-        Text('해석하고 있어요', style: TextStyle(fontSize: 18, color: AppTokens.ink2)),
+        Text(
+          '해석하고 있어요',
+          style: TextStyle(fontSize: 18, color: AppTokens.ink2),
+        ),
       ],
     ),
     LiveSegmentStatus.done => Semantics(
       liveRegion: true,
       button: true,
-      label: '${segment.text}, 다시 듣기',
+      label: [segment.text, ?_delivery, '다시 듣기'].join(', '),
       excludeSemantics: true,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -591,10 +757,13 @@ class _Current extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              child: TypedTranscript(
-                text: segment.text,
-                caret: false,
-                style: _style,
+              child: _SentenceWithBadge(
+                label: _delivery,
+                child: TypedTranscript(
+                  text: segment.text,
+                  caret: false,
+                  style: _style,
+                ),
               ),
             ),
             if (playing)
@@ -624,6 +793,52 @@ class _Current extends StatelessWidget {
   };
 }
 
+String? _deliveryLabel(LiveDelivery delivery) => switch (delivery) {
+  LiveDelivery.none => null,
+  LiveDelivery.sending => '보내는 중',
+  LiveDelivery.delivered => '상대방 폰에 보냈어요',
+  LiveDelivery.played => '상대방 폰에서 읽고 있어요',
+  LiveDelivery.local => '이 폰에서 읽었어요',
+};
+
+class _SentenceWithBadge extends StatelessWidget {
+  const _SentenceWithBadge({required this.label, required this.child});
+
+  final String? label;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = label;
+    if (text == null) return child;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        child,
+        const SizedBox(height: 4),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            color: AppTokens.primarySoft,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: AppTokens.onTonal,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// Live input loudness as bars, newest on the right. Bars above the voice
 /// threshold are drawn in the accent color so the patient can see that
 /// they are being heard.
@@ -647,30 +862,31 @@ class InputSignal extends StatelessWidget {
       for (var i = levels.length; i < LiveSessionCubit.historyLength; i++) 0.0,
       ...levels,
     ];
+    final bars = Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        for (final level in padded)
+          AnimatedContainer(
+            duration: MediaQuery.disableAnimationsOf(context)
+                ? Duration.zero
+                : const Duration(milliseconds: 90),
+            width: 5,
+            height: 4 + level.clamp(0.0, 1.0) * (height - 4),
+            margin: const EdgeInsets.symmetric(horizontal: 2),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(3),
+              color: level >= threshold
+                  ? AppTokens.primary
+                  : AppTokens.lineStrong,
+            ),
+          ),
+      ],
+    );
     return ExcludeSemantics(
       child: SizedBox(
         key: const ValueKey('live_signal'),
         height: height,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            for (final level in padded)
-              AnimatedContainer(
-                duration: MediaQuery.disableAnimationsOf(context)
-                    ? Duration.zero
-                    : const Duration(milliseconds: 90),
-                width: 5,
-                height: 4 + level.clamp(0.0, 1.0) * (height - 4),
-                margin: const EdgeInsets.symmetric(horizontal: 2),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(3),
-                  color: level >= threshold
-                      ? AppTokens.primary
-                      : AppTokens.lineStrong,
-                ),
-              ),
-          ],
-        ),
+        child: FittedBox(fit: BoxFit.scaleDown, child: bars),
       ),
     );
   }

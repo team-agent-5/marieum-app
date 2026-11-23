@@ -34,6 +34,12 @@ import 'package:marieum_app/features/history/data/repositories/history_repositor
 import 'package:marieum_app/features/history/domain/repositories/history_repository.dart';
 import 'package:marieum_app/features/history/presentation/cubit/history_cubit.dart';
 import 'package:marieum_app/features/insight/presentation/cubit/insight_cubit.dart';
+import 'package:marieum_app/features/listen/data/listen_remote_repository.dart';
+import 'package:marieum_app/features/listen/data/listener_socket.dart';
+import 'package:marieum_app/features/listen/domain/repositories/listen_repository.dart';
+import 'package:marieum_app/features/listen/domain/repositories/listener_channel.dart';
+import 'package:marieum_app/features/listen/presentation/cubit/listen_host_cubit.dart';
+import 'package:marieum_app/features/listen/presentation/cubit/listener_cubit.dart';
 import 'package:marieum_app/features/quick_phrase/data/datasources/preset_data_source.dart';
 import 'package:marieum_app/features/quick_phrase/data/datasources/quick_phrase_local_store.dart';
 import 'package:marieum_app/features/quick_phrase/data/repositories/quick_phrase_repository_impl.dart';
@@ -160,6 +166,8 @@ Future<GetIt> configureDependencies({
         ),
         createUtteranceBloc: dependencies.call<UtteranceBloc>,
         createLiveSessionCubit: dependencies.call<LiveSessionCubit>,
+        createListenHostCubit: dependencies.call<ListenHostCubit>,
+        createListenerCubit: dependencies.call<ListenerCubit>,
       ),
       dispose: (router) => router.dispose(),
     )
@@ -186,6 +194,29 @@ Future<GetIt> configureDependencies({
         expiry: dependencies<SessionExpirySignal>(),
       ),
     )
+    ..registerLazySingleton<ListenHostRepository>(
+      () => RemoteListenHostRepository(dependencies<ApiClient>()),
+    )
+    ..registerLazySingleton<ListenJoinRepository>(
+      () => RemoteListenJoinRepository(dependencies<ApiClient>()),
+    )
+    ..registerLazySingleton<ListenerChannel>(
+      () => ListenerSocket(
+        endpoint: ListenerSocket.endpointFor(
+          config.wsUrl.isEmpty ? config.baseUrl : config.wsUrl,
+        ),
+      ),
+    )
+    ..registerFactory<ListenHostCubit>(
+      () => ListenHostCubit(repository: dependencies<ListenHostRepository>()),
+    )
+    ..registerFactory<ListenerCubit>(
+      () => ListenerCubit(
+        repository: dependencies<ListenJoinRepository>(),
+        channel: dependencies<ListenerChannel>(),
+        tts: dependencies<PlaybackTtsPort>(),
+      ),
+    )
     ..registerLazySingleton<SpeechPaceTracker>(() => SpeechPaceTracker(prefs))
     ..registerFactory<LiveSessionCubit>(
       () => LiveSessionCubit(
@@ -198,6 +229,7 @@ Future<GetIt> configureDependencies({
           level: defaultTargetPlatform == TargetPlatform.android,
         ),
         dump: LiveAudioDump.enabled ? LiveAudioDump() : null,
+        listen: dependencies<ListenHostRepository>(),
       ),
     )
     ..registerFactory<UtteranceBloc>(

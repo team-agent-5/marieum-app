@@ -31,5 +31,26 @@ void main() {
       expect(lines.single, isNot(contains('secret1')));
       expect(lines.single, contains('***'));
     });
+
+    test('masks the listening code and token', () {
+      NetworkLogInterceptor().onRequest(
+        RequestOptions(
+          path: '/listen/join',
+          method: 'POST',
+          data: {'join_code': 'K7Q2MX'},
+        ),
+        _Handler(),
+      );
+      NetworkLogInterceptor().onRequest(
+        RequestOptions(
+          path: '/listen/join',
+          method: 'POST',
+          data: '{"listener_token":"tok-secret","expires_at":"x"}',
+        ),
+        _Handler(),
+      );
+      expect(lines.join('\n'), isNot(contains('K7Q2MX')));
+      expect(lines.join('\n'), isNot(contains('tok-secret')));
+    });
   });
 }
